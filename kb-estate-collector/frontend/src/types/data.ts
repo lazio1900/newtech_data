@@ -1,4 +1,4 @@
-export type ListingStatus = "ACTIVE" | "SOLD" | "REMOVED" | "UNKNOWN"
+export type ListingStatus = "active" | "sold" | "removed" | "unknown"
 
 export interface KBPrice {
   id: number

@@ -4,8 +4,10 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime
 
+import json
+
 from src.core.database import get_db
-from src.models import CrawlJob, JobType, JobStatus
+from src.models import CrawlJob, CrawlRun, JobType, JobStatus, RunStatus
 from src.workers.tasks import (
     run_kb_price_collection,
     run_transaction_collection,
@@ -32,6 +34,7 @@ class JobSchema(BaseModel):
     name: str
     job_type: JobType
     description: Optional[str]
+    target_config: Optional[str]
     status: JobStatus
     cron_schedule: Optional[str]
     max_concurrency: int
@@ -88,43 +91,122 @@ def create_job(
     return job
 
 
+@router.post("/create-and-run", status_code=status.HTTP_202_ACCEPTED)
+def create_and_run_job(
+    job_data: JobCreateSchema,
+    db: Session = Depends(get_db),
+):
+    """작업 생성 + 즉시 실행"""
+    job = CrawlJob(**job_data.model_dump())
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # CrawlRun 생성
+    run = CrawlRun(
+        job_id=job.id,
+        status=RunStatus.PENDING,
+        started_at=datetime.utcnow(),
+    )
+    db.add(run)
+    db.commit()
+
+    # region_all 타입 처리
+    if job.job_type == JobType.REGION_ALL:
+        config = json.loads(job.target_config) if job.target_config else {}
+        region_code = config.get("region_code")
+        if not region_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="region_all 작업에 region_code가 설정되지 않았습니다",
+            )
+        task = run_region_collection.delay(
+            region_code=region_code, job_id=job.id, run_id=run.id,
+        )
+    else:
+        task_map = {
+            JobType.KB_PRICE: run_kb_price_collection,
+            JobType.KB_LISTING: run_listing_collection,
+            JobType.KB_TRANSACTION: run_transaction_collection,
+            JobType.MOLIT_TRANSACTION: run_transaction_collection,
+        }
+        task_fn = task_map.get(job.job_type)
+        if not task_fn:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=f"Job type {job.job_type} not yet implemented",
+            )
+        task = task_fn.delay(
+            job_id=job.id, run_id=run.id, target_config=job.target_config,
+        )
+
+    return {
+        "message": "작업이 생성되고 즉시 실행되었습니다",
+        "job_id": job.id,
+        "run_id": run.id,
+        "task_id": task.id,
+    }
+
+
 @router.post("/{job_id}/run", status_code=status.HTTP_202_ACCEPTED)
 def run_job_now(job_id: int, db: Session = Depends(get_db)):
     """작업 즉시 실행"""
     job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
-    
+
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found"
         )
-    
+
     if job.status != JobStatus.ACTIVE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job is not active"
         )
-    
-    # Trigger appropriate task based on job type
-    task_map = {
-        JobType.KB_PRICE: run_kb_price_collection,
-        JobType.KB_LISTING: run_listing_collection,
-        JobType.KB_TRANSACTION: run_transaction_collection,
-        JobType.MOLIT_TRANSACTION: run_transaction_collection,
-    }
 
-    task_fn = task_map.get(job.job_type)
-    if not task_fn:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=f"Job type {job.job_type} not yet implemented"
+    # CrawlRun을 API에서 먼저 생성하여 즉시 run_id 반환
+    run = CrawlRun(
+        job_id=job.id,
+        status=RunStatus.PENDING,
+        started_at=datetime.utcnow(),
+    )
+    db.add(run)
+    db.commit()
+
+    # region_all 타입은 target_config에서 region_code를 꺼내 사용
+    if job.job_type == JobType.REGION_ALL:
+        config = json.loads(job.target_config) if job.target_config else {}
+        region_code = config.get("region_code")
+        if not region_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="region_all 작업에 region_code가 설정되지 않았습니다",
+            )
+        task = run_region_collection.delay(
+            region_code=region_code, job_id=job.id, run_id=run.id,
         )
-
-    task = task_fn.delay(job_id=job.id)
+    else:
+        task_map = {
+            JobType.KB_PRICE: run_kb_price_collection,
+            JobType.KB_LISTING: run_listing_collection,
+            JobType.KB_TRANSACTION: run_transaction_collection,
+            JobType.MOLIT_TRANSACTION: run_transaction_collection,
+        }
+        task_fn = task_map.get(job.job_type)
+        if not task_fn:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=f"Job type {job.job_type} not yet implemented",
+            )
+        task = task_fn.delay(
+            job_id=job.id, run_id=run.id, target_config=job.target_config,
+        )
 
     return {
         "message": "Job execution started",
         "job_id": job.id,
+        "run_id": run.id,
         "task_id": task.id,
     }
 
@@ -166,17 +248,49 @@ def resume_job(job_id: int, db: Session = Depends(get_db)):
 @router.post("/run-region", status_code=status.HTTP_202_ACCEPTED)
 def run_region_collection_endpoint(
     region_code: str,
-    job_id: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """
     지역 기반 전체 수집 (발견 + 시세 + 실거래가 + 매물).
+    자동으로 CrawlJob(region_all)을 생성하여 작업 탭에서도 확인 가능.
 
     - region_code: 법정동코드 (5자리 시군구 또는 10자리)
-    - job_id: 연결할 CrawlJob ID (선택)
     """
-    task = run_region_collection.delay(region_code=region_code, job_id=job_id)
+    # 같은 region_code의 기존 region_all 작업이 있으면 재사용
+    target_json = json.dumps({"region_code": region_code})
+    existing_job = db.query(CrawlJob).filter(
+        CrawlJob.job_type == JobType.REGION_ALL,
+        CrawlJob.target_config == target_json,
+    ).first()
+
+    if existing_job:
+        job = existing_job
+    else:
+        job = CrawlJob(
+            name=f"{region_code} 지역 전체 수집",
+            job_type=JobType.REGION_ALL,
+            description=f"지역코드 {region_code} 단지발견 + 시세 + 실거래 + 매물",
+            target_config=target_json,
+            status=JobStatus.ACTIVE,
+        )
+        db.add(job)
+        db.commit()
+
+    # CrawlRun 생성
+    run = CrawlRun(
+        job_id=job.id,
+        status=RunStatus.PENDING,
+        started_at=datetime.utcnow(),
+    )
+    db.add(run)
+    db.commit()
+
+    task = run_region_collection.delay(
+        region_code=region_code, job_id=job.id, run_id=run.id,
+    )
     return {
-        "message": f"Region collection started for {region_code}",
+        "message": f"{region_code} 지역 수집이 시작되었습니다",
         "task_id": task.id,
+        "run_id": run.id,
+        "job_id": job.id,
     }

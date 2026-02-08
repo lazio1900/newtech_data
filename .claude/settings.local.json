@@ -36,7 +36,8 @@
       "Bash(tasklist:*)",
       "Bash(wmic:*)",
       "Bash(curl:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(echo:*)"
     ]
   }
 }

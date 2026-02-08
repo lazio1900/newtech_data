@@ -1,5 +1,5 @@
-export type RunStatus = "PENDING" | "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED" | "CANCELLED"
-export type TaskStatus = "PENDING" | "RUNNING" | "SUCCESS" | "FAILED" | "RETRY" | "SKIPPED"
+export type RunStatus = "pending" | "running" | "success" | "partial" | "failed" | "cancelled"
+export type TaskStatus = "pending" | "running" | "success" | "failed" | "retry" | "skipped"
 
 export interface CrawlRun {
   id: number

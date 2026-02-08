@@ -11,9 +11,17 @@ export const jobsApi = {
   create: (data: JobCreate) =>
     apiClient.post<CrawlJob>("/api/jobs", data).then((r) => r.data),
 
+  createAndRun: (data: JobCreate) =>
+    apiClient
+      .post<{ message: string; job_id: number; run_id: number; task_id: string }>(
+        "/api/jobs/create-and-run",
+        data,
+      )
+      .then((r) => r.data),
+
   run: (id: number) =>
     apiClient
-      .post<{ message: string; job_id: number; task_id: string }>(
+      .post<{ message: string; job_id: number; run_id: number; task_id: string }>(
         `/api/jobs/${id}/run`
       )
       .then((r) => r.data),
@@ -30,7 +38,7 @@ export const jobsApi = {
 
   runRegion: (regionCode: string, jobId?: number) =>
     apiClient
-      .post<{ message: string; task_id: string }>("/api/jobs/run-region", null, {
+      .post<{ message: string; run_id: number; task_id: string }>("/api/jobs/run-region", null, {
         params: { region_code: regionCode, job_id: jobId },
       })
       .then((r) => r.data),

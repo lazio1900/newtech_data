@@ -9,8 +9,9 @@ KB부동산 데이터 수집 태스크:
 - 지역 기반 전체 수집
 """
 import asyncio
+import json
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import logging
 
 from celery import Task
@@ -35,6 +36,102 @@ def run_async(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+
+
+def ensure_complex_areas(db: Session, complex_obj: Complex) -> List[Area]:
+    """
+    단지에 면적 정보가 없으면 KB API에서 조회하여 자동 등록.
+    지역 발견 시 면적 정보 없이 등록된 단지를 위한 보완 로직.
+    """
+    if complex_obj.areas:
+        return complex_obj.areas
+
+    if not complex_obj.kb_complex_id:
+        logger.warning(f"Complex {complex_obj.id} ({complex_obj.name}): no kb_complex_id, skip area fetch")
+        return []
+
+    logger.info(f"Complex {complex_obj.id} ({complex_obj.name}): fetching areas from KB API")
+
+    try:
+        from src.connectors.kb_endpoints import COMPLEX_TYPE_INFO
+        from src.services.complex_discovery import _DiscoveryConnector
+
+        connector = _DiscoveryConnector(name="area_fetch", rate_limit_per_minute=30)
+        data = run_async(
+            connector._fetch_via_http(
+                COMPLEX_TYPE_INFO, {"단지기본일련번호": complex_obj.kb_complex_id}
+            )
+        )
+
+        body = data.get("dataBody", {}).get("data", [])
+        area_list = body if isinstance(body, list) else []
+
+        created = []
+        for a in area_list:
+            exclusive = a.get("전용면적", 0)
+            try:
+                exclusive = float(str(exclusive).replace(",", ""))
+            except (ValueError, TypeError):
+                continue
+            if exclusive <= 0:
+                continue
+
+            supply = None
+            try:
+                supply = float(str(a.get("공급면적", "")).replace(",", "")) or None
+            except (ValueError, TypeError):
+                pass
+
+            pyeong = None
+            try:
+                pyeong = float(str(a.get("평", "")).replace(",", "")) or None
+            except (ValueError, TypeError):
+                pass
+
+            area_code = str(a.get("면적일련번호", "")) or None
+
+            area = Area(
+                complex_id=complex_obj.id,
+                exclusive_m2=exclusive,
+                supply_m2=supply,
+                pyeong=pyeong,
+                kb_area_code=area_code,
+            )
+            db.add(area)
+            created.append(area)
+
+        if created:
+            db.flush()
+            logger.info(f"Complex {complex_obj.id}: registered {len(created)} areas")
+        else:
+            logger.warning(f"Complex {complex_obj.id}: no valid areas from KB API")
+
+        return created
+
+    except Exception as e:
+        logger.warning(f"Complex {complex_obj.id}: area fetch failed: {e}")
+        return []
+
+
+def _get_target_complexes(
+    db: Session, target_config: Optional[str] = None
+) -> List[Complex]:
+    """
+    target_config에서 대상 단지 목록을 결정.
+    - complex_ids가 있으면 해당 단지만 (활성 여부 무관)
+    - 없으면 모든 활성 단지
+    """
+    if target_config:
+        try:
+            config = json.loads(target_config)
+        except (json.JSONDecodeError, TypeError):
+            config = {}
+
+        complex_ids = config.get("complex_ids")
+        if complex_ids and isinstance(complex_ids, list):
+            return db.query(Complex).filter(Complex.id.in_(complex_ids)).all()
+
+    return db.query(Complex).filter(Complex.is_active == True).all()
 
 
 class DatabaseTask(Task):
@@ -118,24 +215,43 @@ def collect_kb_price_task(
 
 
 @celery_app.task(base=DatabaseTask, bind=True)
-def run_kb_price_collection(self, job_id: int = None) -> Dict[str, Any]:
-    """KB 시세 수집 작업 실행 (모든 활성 단지)"""
+def run_kb_price_collection(
+    self, job_id: int = None, run_id: int = None, target_config: str = None,
+) -> Dict[str, Any]:
+    """KB 시세 수집 작업 실행. target_config로 특정 단지만 수집 가능."""
     db = self.db
 
-    run = CrawlRun(
-        job_id=job_id,
-        status=RunStatus.RUNNING,
-        started_at=datetime.utcnow(),
-    )
-    db.add(run)
+    if run_id:
+        run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
+        run.status = RunStatus.RUNNING
+        run.started_at = datetime.utcnow()
+    else:
+        run = CrawlRun(
+            job_id=job_id,
+            status=RunStatus.RUNNING,
+            started_at=datetime.utcnow(),
+        )
+        db.add(run)
     db.commit()
 
+    # target_config가 없으면 job에서 가져오기
+    if not target_config and job_id:
+        job = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
+        if job and job.job_id:
+            from src.models import CrawlJob
+            j = db.query(CrawlJob).filter(CrawlJob.id == job.job_id).first()
+            if j:
+                target_config = j.target_config
+
     try:
-        complexes = db.query(Complex).filter(Complex.is_active == True).all()
+        complexes = _get_target_complexes(db, target_config)
 
         tasks = []
         for complex_obj in complexes:
-            for area in complex_obj.areas:
+            # 면적이 없으면 KB API에서 자동 조회
+            areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
+
+            for area in areas:
                 task = collect_kb_price_task.delay(
                     run_id=run.id,
                     complex_id=complex_obj.id,
@@ -143,6 +259,7 @@ def run_kb_price_collection(self, job_id: int = None) -> Dict[str, Any]:
                 )
                 tasks.append(task)
 
+        db.commit()
         run.total_tasks = len(tasks)
         db.commit()
 
@@ -221,20 +338,27 @@ def collect_kb_transaction_task(
 
 
 @celery_app.task(base=DatabaseTask, bind=True)
-def run_transaction_collection(self, job_id: int = None) -> Dict[str, Any]:
-    """KB 실거래가 수집 작업 실행 (모든 활성 단지)"""
+def run_transaction_collection(
+    self, job_id: int = None, run_id: int = None, target_config: str = None,
+) -> Dict[str, Any]:
+    """KB 실거래가 수집 작업 실행. target_config로 특정 단지만 수집 가능."""
     db = self.db
 
-    run = CrawlRun(
-        job_id=job_id,
-        status=RunStatus.RUNNING,
-        started_at=datetime.utcnow(),
-    )
-    db.add(run)
+    if run_id:
+        run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
+        run.status = RunStatus.RUNNING
+        run.started_at = datetime.utcnow()
+    else:
+        run = CrawlRun(
+            job_id=job_id,
+            status=RunStatus.RUNNING,
+            started_at=datetime.utcnow(),
+        )
+        db.add(run)
     db.commit()
 
     try:
-        complexes = db.query(Complex).filter(Complex.is_active == True).all()
+        complexes = _get_target_complexes(db, target_config)
 
         tasks = []
         for complex_obj in complexes:
@@ -350,23 +474,30 @@ def collect_kb_listing_task(
 
 
 @celery_app.task(base=DatabaseTask, bind=True)
-def run_listing_collection(self, job_id: int = None) -> Dict[str, Any]:
-    """KB 매물 수집 작업 실행 (collect_listings=True인 활성 단지)"""
+def run_listing_collection(
+    self, job_id: int = None, run_id: int = None, target_config: str = None,
+) -> Dict[str, Any]:
+    """KB 매물 수집 작업 실행. target_config로 특정 단지만 수집 가능."""
     db = self.db
 
-    run = CrawlRun(
-        job_id=job_id,
-        status=RunStatus.RUNNING,
-        started_at=datetime.utcnow(),
-    )
-    db.add(run)
+    if run_id:
+        run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
+        run.status = RunStatus.RUNNING
+        run.started_at = datetime.utcnow()
+    else:
+        run = CrawlRun(
+            job_id=job_id,
+            status=RunStatus.RUNNING,
+            started_at=datetime.utcnow(),
+        )
+        db.add(run)
     db.commit()
 
     try:
-        complexes = db.query(Complex).filter(
-            Complex.is_active == True,
-            Complex.collect_listings == True,
-        ).all()
+        complexes = _get_target_complexes(db, target_config)
+        # target_config가 없으면 collect_listings=True인 것만
+        if not target_config:
+            complexes = [c for c in complexes if c.collect_listings]
 
         tasks = []
         for complex_obj in complexes:
@@ -415,6 +546,7 @@ def run_region_collection(
     self,
     region_code: str,
     job_id: int = None,
+    run_id: int = None,
 ) -> Dict[str, Any]:
     """
     지역 기반 전체 수집:
@@ -424,6 +556,19 @@ def run_region_collection(
     4. 매물 수집 (collect_listings=True인 단지)
     """
     db = self.db
+
+    # 기존 run 사용 또는 신규 생성
+    if run_id:
+        run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
+        run.status = RunStatus.RUNNING
+    else:
+        run = CrawlRun(
+            job_id=job_id,
+            status=RunStatus.RUNNING,
+            started_at=datetime.utcnow(),
+        )
+        db.add(run)
+    db.commit()
 
     # Step 1: 단지 발견
     from src.services.complex_discovery import ComplexDiscoveryService
@@ -439,24 +584,23 @@ def run_region_collection(
 
     if not complexes:
         logger.warning(f"No active complexes found for region {region_code}")
+        run.status = RunStatus.SUCCESS
+        run.finished_at = datetime.utcnow()
+        db.commit()
         return {
             "region_code": region_code,
             "discovery": discovery_result,
+            "run_id": run.id,
             "total_tasks": 0,
         }
 
-    # Step 3: CrawlRun 생성 및 태스크 실행
-    run = CrawlRun(
-        job_id=job_id,
-        status=RunStatus.RUNNING,
-        started_at=datetime.utcnow(),
-    )
-    db.add(run)
-    db.commit()
-
+    # Step 3: 태스크 실행
     total_tasks = 0
     for complex_obj in complexes:
-        for area in complex_obj.areas:
+        # 면적이 없으면 KB API에서 자동 조회
+        areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
+
+        for area in areas:
             collect_kb_price_task.delay(
                 run_id=run.id,
                 complex_id=complex_obj.id,

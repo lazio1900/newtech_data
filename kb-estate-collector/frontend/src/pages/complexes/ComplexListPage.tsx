@@ -31,10 +31,18 @@ import {
 import { PRIORITY_LABELS } from "@/lib/constants"
 import { toast } from "sonner"
 
+interface DiscoverResult {
+  region_code: string
+  total_found: number
+  new_registered: number
+  already_exists: number
+}
+
 export default function ComplexListPage() {
   const [search, setSearch] = useState("")
   const [showCreate, setShowCreate] = useState(false)
   const [showDiscover, setShowDiscover] = useState(false)
+  const [discoverResult, setDiscoverResult] = useState<DiscoverResult | null>(null)
 
   const { data: complexes, isLoading } = useComplexes({ limit: 500 })
   const createMutation = useCreateComplex()
@@ -123,7 +131,7 @@ export default function ComplexListPage() {
                     </TableCell>
                     <TableCell>
                       <StatusBadge
-                        status={c.is_active ? "ACTIVE" : "DISABLED"}
+                        status={c.is_active ? "active" : "disabled"}
                         label={c.is_active ? "활성" : "비활성"}
                       />
                     </TableCell>
@@ -153,28 +161,83 @@ export default function ComplexListPage() {
         }}
       />
 
-      <Dialog open={showDiscover} onOpenChange={setShowDiscover}>
+      <Dialog
+        open={showDiscover}
+        onOpenChange={(open) => {
+          setShowDiscover(open)
+          if (!open) setDiscoverResult(null)
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>지역 기반 단지 발견</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            지역코드를 입력하면 해당 지역의 아파트 단지를 자동으로 발견하고
-            등록합니다.
-          </p>
-          <RegionCodeInput
-            loading={discoverMutation.isPending}
-            buttonLabel="발견 시작"
-            onSubmit={(code) => {
-              discoverMutation.mutate(code, {
-                onSuccess: (res) => {
-                  toast.success(res.message || "지역 발견이 시작되었습니다")
-                  setShowDiscover(false)
-                },
-                onError: () => toast.error("지역 발견에 실패했습니다"),
-              })
-            }}
-          />
+
+          {discoverResult ? (
+            <div className="space-y-3">
+              <p className="text-sm font-medium">
+                {discoverResult.region_code} 지역 발견 완료
+              </p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg border p-3">
+                  <div className="text-2xl font-bold">{discoverResult.total_found}</div>
+                  <div className="text-xs text-muted-foreground">총 발견</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {discoverResult.new_registered}
+                  </div>
+                  <div className="text-xs text-muted-foreground">신규 등록</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="text-2xl font-bold text-gray-400">
+                    {discoverResult.already_exists}
+                  </div>
+                  <div className="text-xs text-muted-foreground">이미 등록</div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDiscoverResult(null)}
+                >
+                  다른 지역 발견
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setShowDiscover(false)
+                    setDiscoverResult(null)
+                  }}
+                >
+                  닫기
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                지역코드를 입력하면 KB부동산에서 해당 지역의 아파트 단지를
+                자동으로 발견하고 등록합니다.
+              </p>
+              <RegionCodeInput
+                loading={discoverMutation.isPending}
+                buttonLabel="발견 시작"
+                onSubmit={(code) => {
+                  discoverMutation.mutate(code, {
+                    onSuccess: (res) => {
+                      setDiscoverResult(res)
+                      toast.success(
+                        `${res.total_found}개 단지 발견, ${res.new_registered}개 신규 등록`
+                      )
+                    },
+                    onError: () => toast.error("지역 발견에 실패했습니다"),
+                  })
+                }}
+              />
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

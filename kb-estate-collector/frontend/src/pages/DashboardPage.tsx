@@ -17,9 +17,9 @@ export default function DashboardPage() {
 
   const totalComplexes = complexes?.length ?? 0
   const activeComplexes = complexes?.filter((c) => c.is_active).length ?? 0
-  const activeJobs = jobs?.filter((j) => j.status === "ACTIVE").length ?? 0
+  const activeJobs = jobs?.filter((j) => j.status === "active").length ?? 0
   const recentRuns = runs?.slice(0, 5) ?? []
-  const lastSuccess = runs?.find((r) => r.status === "SUCCESS")
+  const lastSuccess = runs?.find((r) => r.status === "success")
 
   return (
     <div>

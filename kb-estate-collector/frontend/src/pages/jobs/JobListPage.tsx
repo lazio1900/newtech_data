@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { Plus, Play, Pause, MapPin } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -24,6 +25,7 @@ import JobFormDialog from "./JobFormDialog"
 import {
   useJobs,
   useCreateJob,
+  useCreateAndRunJob,
   useRunJob,
   usePauseJob,
   useResumeJob,
@@ -34,11 +36,13 @@ import { formatDateTime } from "@/lib/format"
 import { toast } from "sonner"
 
 export default function JobListPage() {
+  const navigate = useNavigate()
   const [showCreate, setShowCreate] = useState(false)
   const [showRegion, setShowRegion] = useState(false)
 
   const { data: jobs, isLoading } = useJobs()
   const createMutation = useCreateJob()
+  const createAndRunMutation = useCreateAndRunJob()
   const runMutation = useRunJob()
   const pauseMutation = usePauseJob()
   const resumeMutation = useResumeJob()
@@ -108,17 +112,17 @@ export default function JobListPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        {job.status === "ACTIVE" && (
+                        {job.status === "active" && (
                           <>
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() =>
                                 runMutation.mutate(job.id, {
-                                  onSuccess: (res) =>
-                                    toast.success(
-                                      res.message || "작업이 실행되었습니다"
-                                    ),
+                                  onSuccess: (res) => {
+                                    toast.success("작업이 실행되었습니다")
+                                    navigate(`/runs/${res.run_id}`)
+                                  },
                                   onError: () =>
                                     toast.error("실행에 실패했습니다"),
                                 })
@@ -144,7 +148,7 @@ export default function JobListPage() {
                             </Button>
                           </>
                         )}
-                        {job.status === "PAUSED" && (
+                        {job.status === "paused" && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -175,6 +179,7 @@ export default function JobListPage() {
         open={showCreate}
         onOpenChange={setShowCreate}
         loading={createMutation.isPending}
+        runLoading={createAndRunMutation.isPending}
         onSubmit={(data) => {
           createMutation.mutate(data, {
             onSuccess: () => {
@@ -182,6 +187,16 @@ export default function JobListPage() {
               setShowCreate(false)
             },
             onError: () => toast.error("작업 생성에 실패했습니다"),
+          })
+        }}
+        onCreateAndRun={(data) => {
+          createAndRunMutation.mutate(data, {
+            onSuccess: (res) => {
+              toast.success("작업이 생성되고 즉시 실행되었습니다")
+              setShowCreate(false)
+              navigate(`/runs/${res.run_id}`)
+            },
+            onError: () => toast.error("작업 생성/실행에 실패했습니다"),
           })
         }}
       />
@@ -201,8 +216,9 @@ export default function JobListPage() {
             onSubmit={(code) => {
               regionMutation.mutate(code, {
                 onSuccess: (res) => {
-                  toast.success(res.message || "지역 수집이 시작되었습니다")
+                  toast.success(res.message)
                   setShowRegion(false)
+                  navigate(`/runs/${res.run_id}`)
                 },
                 onError: () => toast.error("지역 수집에 실패했습니다"),
               })

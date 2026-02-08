@@ -25,6 +25,17 @@ export function useCreateJob() {
   })
 }
 
+export function useCreateAndRunJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: JobCreate) => jobsApi.createAndRun(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] })
+      qc.invalidateQueries({ queryKey: ["runs"] })
+    },
+  })
+}
+
 export function useRunJob() {
   const qc = useQueryClient()
   return useMutation({
@@ -54,6 +65,7 @@ export function useRunRegion() {
   return useMutation({
     mutationFn: (regionCode: string) => jobsApi.runRegion(regionCode),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] })
       qc.invalidateQueries({ queryKey: ["runs"] })
       setTimeout(() => qc.invalidateQueries({ queryKey: ["complexes"] }), 5000)
     },

@@ -1,4 +1,4 @@
-export type PriorityLevel = "HIGH" | "NORMAL" | "LOW"
+export type PriorityLevel = "high" | "normal" | "low"
 
 export interface Area {
   id: number

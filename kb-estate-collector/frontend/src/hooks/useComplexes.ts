@@ -47,7 +47,7 @@ export function useDiscoverRegion() {
   return useMutation({
     mutationFn: (regionCode: string) => complexesApi.discoverRegion(regionCode),
     onSuccess: () => {
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["complexes"] }), 5000)
+      qc.invalidateQueries({ queryKey: ["complexes"] })
     },
   })
 }

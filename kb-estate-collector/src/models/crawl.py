@@ -11,6 +11,7 @@ class JobType(str, enum.Enum):
     KB_LISTING = "kb_listing"
     KB_TRANSACTION = "kb_transaction"
     MOLIT_TRANSACTION = "molit_transaction"
+    REGION_ALL = "region_all"
 
 
 class JobStatus(str, enum.Enum):
@@ -78,7 +79,7 @@ class CrawlRun(Base):
     __tablename__ = "crawl_runs"
 
     id = Column(Integer, primary_key=True, index=True)
-    job_id = Column(Integer, ForeignKey("crawl_jobs.id"), nullable=False)
+    job_id = Column(Integer, ForeignKey("crawl_jobs.id"), nullable=True)
     
     # 실행 정보
     status = Column(Enum(RunStatus), default=RunStatus.PENDING, comment="실행 상태")

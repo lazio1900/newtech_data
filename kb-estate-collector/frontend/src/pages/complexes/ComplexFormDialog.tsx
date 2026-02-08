@@ -37,7 +37,7 @@ export default function ComplexFormDialog({
     address: "",
     region_code: "",
     kb_complex_id: "",
-    priority: "NORMAL",
+    priority: "normal",
     is_active: true,
     collect_listings: false,
   })
@@ -59,7 +59,7 @@ export default function ComplexFormDialog({
         address: "",
         region_code: "",
         kb_complex_id: "",
-        priority: "NORMAL",
+        priority: "normal",
         is_active: true,
         collect_listings: false,
       })
@@ -68,7 +68,11 @@ export default function ComplexFormDialog({
 
   const handleSubmit = () => {
     if (!form.name || !form.address) return
-    onSubmit(form)
+    onSubmit({
+      ...form,
+      region_code: form.region_code || undefined,
+      kb_complex_id: form.kb_complex_id || undefined,
+    })
   }
 
   return (
@@ -79,11 +83,11 @@ export default function ComplexFormDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium">이름 *</label>
+            <label className="mb-1 block text-sm font-medium">단지명 *</label>
             <Input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="래미안역삼"
+              placeholder="예) 래미안퍼스티지"
             />
           </div>
           <div>
@@ -91,26 +95,30 @@ export default function ComplexFormDialog({
             <Input
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
-              placeholder="서울특별시 강남구 역삼동"
+              placeholder="예) 서울 서초구 반포동 18-2"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium">지역코드</label>
+              <label className="mb-1 block text-sm font-medium">
+                지역코드 <span className="text-xs text-muted-foreground">(선택)</span>
+              </label>
               <Input
                 value={form.region_code}
                 onChange={(e) => setForm({ ...form, region_code: e.target.value })}
-                placeholder="11680"
+                placeholder="예) 11650"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">KB 단지 ID</label>
+              <label className="mb-1 block text-sm font-medium">
+                KB 단지 ID <span className="text-xs text-muted-foreground">(선택)</span>
+              </label>
               <Input
                 value={form.kb_complex_id}
                 onChange={(e) =>
                   setForm({ ...form, kb_complex_id: e.target.value })
                 }
-                placeholder="12345"
+                placeholder="예) 23511"
               />
             </div>
           </div>
@@ -126,9 +134,9 @@ export default function ComplexFormDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="HIGH">높음</SelectItem>
-                <SelectItem value="NORMAL">보통</SelectItem>
-                <SelectItem value="LOW">낮음</SelectItem>
+                <SelectItem value="high">높음</SelectItem>
+                <SelectItem value="normal">보통</SelectItem>
+                <SelectItem value="low">낮음</SelectItem>
               </SelectContent>
             </Select>
           </div>

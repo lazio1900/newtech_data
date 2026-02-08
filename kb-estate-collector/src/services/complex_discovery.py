@@ -11,13 +11,29 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from src.connectors.kb_base import KBBaseConnector
-from src.connectors.kb_endpoints import COMPLEX_SEARCH, COMPLEX_DETAIL, REGION_SIGUNGU, REGION_DONG
+from src.connectors.kb_endpoints import KBEndpoint, COMPLEX_SEARCH, COMPLEX_DETAIL, REGION_SIGUNGU, REGION_DONG
 from src.connectors.base import NetworkError, BrowserError
 from src.browser.session_manager import BrowserSessionManager
 from src.browser.stealth import get_random_delay
 from src.models.complex import Complex, Area, PriorityLevel
 
 logger = logging.getLogger(__name__)
+
+
+class _DiscoveryConnector(KBBaseConnector):
+    """ComplexDiscoveryService 전용 커넥터. _fetch_via_http만 사용."""
+
+    def _build_http_params(self, **kwargs):
+        return (COMPLEX_SEARCH, kwargs)
+
+    def _build_browser_config(self, **kwargs):
+        return ("https://kbland.kr/map", "", None)
+
+    def parse(self, raw_data):
+        return []
+
+    def fetch(self, **kwargs):
+        return {}
 
 
 class ComplexDiscoveryService:
@@ -37,7 +53,7 @@ class ComplexDiscoveryService:
 
     def __init__(self, db_session: Session):
         self.db = db_session
-        self._connector = KBBaseConnector(
+        self._connector = _DiscoveryConnector(
             name="ComplexDiscovery",
             rate_limit_per_minute=20,
         )

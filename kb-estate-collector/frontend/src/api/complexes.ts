@@ -19,10 +19,13 @@ export const complexesApi = {
 
   discoverRegion: (regionCode: string) =>
     apiClient
-      .post<{ message: string; task_id: string }>(
-        "/api/complexes/discover-region",
-        null,
-        { params: { region_code: regionCode } }
-      )
+      .post<{
+        region_code: string
+        total_found: number
+        new_registered: number
+        already_exists: number
+      }>("/api/complexes/discover-region", null, {
+        params: { region_code: regionCode },
+      })
       .then((r) => r.data),
 }

@@ -101,7 +101,7 @@ export default function ComplexDetailPage() {
               label={PRIORITY_LABELS[complex.priority]}
             />
             <StatusBadge
-              status={complex.is_active ? "ACTIVE" : "DISABLED"}
+              status={complex.is_active ? "active" : "disabled"}
               label={complex.is_active ? "활성" : "비활성"}
             />
           </div>

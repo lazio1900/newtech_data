@@ -21,10 +21,10 @@ import type { TaskStatus } from "@/types/run"
 
 const TASK_FILTERS: { label: string; value: string | undefined }[] = [
   { label: "전체", value: undefined },
-  { label: "성공", value: "SUCCESS" },
-  { label: "실패", value: "FAILED" },
-  { label: "실행중", value: "RUNNING" },
-  { label: "대기", value: "PENDING" },
+  { label: "성공", value: "success" },
+  { label: "실패", value: "failed" },
+  { label: "실행중", value: "running" },
+  { label: "대기", value: "pending" },
 ]
 
 export default function RunDetailPage() {
