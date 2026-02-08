@@ -27,6 +27,13 @@ class JobCreateSchema(BaseModel):
     rate_limit_per_minute: int = 60
 
 
+class JobUpdateSchema(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    cron_schedule: Optional[str] = None
+    target_config: Optional[str] = None
+
+
 class JobSchema(BaseModel):
     id: int
     name: str
@@ -39,9 +46,49 @@ class JobSchema(BaseModel):
     rate_limit_per_minute: int
     created_at: datetime
     updated_at: datetime
+    last_run_id: Optional[int] = None
+    last_run_status: Optional[str] = None
+    last_run_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+def _enrich_jobs_with_last_run(jobs: list, db: Session) -> list:
+    """각 Job에 최신 CrawlRun 정보를 첨부"""
+    if not jobs:
+        return []
+
+    job_ids = [j.id for j in jobs]
+    from sqlalchemy import func
+
+    # 각 job_id별 최신 run 조회 (subquery로 max started_at)
+    subq = (
+        db.query(
+            CrawlRun.job_id,
+            func.max(CrawlRun.id).label("max_id"),
+        )
+        .filter(CrawlRun.job_id.in_(job_ids))
+        .group_by(CrawlRun.job_id)
+        .subquery()
+    )
+    latest_runs = (
+        db.query(CrawlRun)
+        .join(subq, CrawlRun.id == subq.c.max_id)
+        .all()
+    )
+    run_map = {r.job_id: r for r in latest_runs}
+
+    result = []
+    for job in jobs:
+        data = JobSchema.model_validate(job).model_dump()
+        run = run_map.get(job.id)
+        if run:
+            data["last_run_id"] = run.id
+            data["last_run_status"] = run.status.value if hasattr(run.status, 'value') else str(run.status)
+            data["last_run_at"] = run.started_at
+        result.append(data)
+    return result
 
 
 @router.get("/", response_model=List[JobSchema])
@@ -53,26 +100,27 @@ def list_jobs(
 ):
     """수집 작업 목록 조회"""
     query = db.query(CrawlJob)
-    
+
     if status_filter:
         query = query.filter(CrawlJob.status == status_filter)
-    
+
     jobs = query.offset(skip).limit(limit).all()
-    return jobs
+    return _enrich_jobs_with_last_run(jobs, db)
 
 
 @router.get("/{job_id}", response_model=JobSchema)
 def get_job(job_id: int, db: Session = Depends(get_db)):
     """작업 상세 조회"""
     job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
-    
+
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found"
         )
-    
-    return job
+
+    enriched = _enrich_jobs_with_last_run([job], db)
+    return enriched[0]
 
 
 @router.post("/", response_model=JobSchema, status_code=status.HTTP_201_CREATED)
@@ -185,6 +233,32 @@ def run_job_now(job_id: int, db: Session = Depends(get_db)):
         "run_id": run.id,
         "task_id": task.id,
     }
+
+
+@router.patch("/{job_id}", response_model=JobSchema)
+def update_job(
+    job_id: int,
+    update_data: JobUpdateSchema,
+    db: Session = Depends(get_db),
+):
+    """작업 설정 수정 (이름, 설명, 스케줄, 대상 설정)"""
+    job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    update_dict = update_data.model_dump(exclude_unset=True)
+    for key, value in update_dict.items():
+        setattr(job, key, value)
+
+    db.commit()
+    db.refresh(job)
+
+    enriched = _enrich_jobs_with_last_run([job], db)
+    return enriched[0]
 
 
 @router.patch("/{job_id}/pause")

@@ -37,7 +37,9 @@
       "Bash(wmic:*)",
       "Bash(curl:*)",
       "Bash(npm run dev:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(PGPASSWORD=postgres psql:*)",
+      "Bash(powershell \"Get-Process | Where-Object {$_CommandLine -like ''*celery*''} | Select-Object Id,ProcessName,CommandLine\")"
     ]
   }
 }

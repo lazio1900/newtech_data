@@ -31,9 +31,31 @@ import {
   useResumeJob,
   useRunRegion,
 } from "@/hooks/useJobs"
-import { JOB_TYPE_LABELS, JOB_STATUS_LABELS } from "@/lib/constants"
-import { formatDateTime } from "@/lib/format"
+import {
+  JOB_TYPE_LABELS,
+  JOB_STATUS_LABELS,
+  RUN_STATUS_LABELS,
+  COMMON_REGIONS,
+} from "@/lib/constants"
+import { formatRelativeTime } from "@/lib/format"
 import { toast } from "sonner"
+
+function parseTargetSummary(targetConfig: string | null): string {
+  if (!targetConfig) return "전체 활성 단지"
+  try {
+    const config = JSON.parse(targetConfig)
+    if (config.region_code) {
+      const label = COMMON_REGIONS[config.region_code]
+      return label ? `${label} 지역` : `${config.region_code} 지역`
+    }
+    if (config.complex_ids && Array.isArray(config.complex_ids)) {
+      return `${config.complex_ids.length}개 단지`
+    }
+    return "전체 활성 단지"
+  } catch {
+    return "전체 활성 단지"
+  }
+}
 
 export default function JobListPage() {
   const navigate = useNavigate()
@@ -85,18 +107,26 @@ export default function JobListPage() {
                 <TableRow>
                   <TableHead>작업명</TableHead>
                   <TableHead>유형</TableHead>
+                  <TableHead>대상</TableHead>
                   <TableHead>스케줄</TableHead>
                   <TableHead>상태</TableHead>
-                  <TableHead>생성일</TableHead>
+                  <TableHead>마지막 실행</TableHead>
                   <TableHead className="text-right">작업</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {jobs.map((job) => (
-                  <TableRow key={job.id}>
+                  <TableRow
+                    key={job.id}
+                    className="cursor-pointer hover:bg-accent"
+                    onClick={() => navigate(`/jobs/${job.id}`)}
+                  >
                     <TableCell className="font-medium">{job.name}</TableCell>
                     <TableCell className="text-sm">
                       {JOB_TYPE_LABELS[job.job_type] || job.job_type}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {parseTargetSummary(job.target_config)}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {job.cron_schedule || "-"}
@@ -107,11 +137,29 @@ export default function JobListPage() {
                         label={JOB_STATUS_LABELS[job.status] || job.status}
                       />
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatDateTime(job.created_at)}
+                    <TableCell className="text-sm">
+                      {job.last_run_status ? (
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge
+                            status={job.last_run_status}
+                            label={
+                              RUN_STATUS_LABELS[job.last_run_status] ||
+                              job.last_run_status
+                            }
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {formatRelativeTime(job.last_run_at)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
+                      <div
+                        className="flex justify-end gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {job.status === "active" && (
                           <>
                             <Button

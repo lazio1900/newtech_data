@@ -97,13 +97,31 @@ COMPLEX_TRANSACTION_YEARLY = KBEndpoint(
 # 매물 관련
 # ------------------------------------------------------------------
 
-# 매물 목록 (지도 영역 기반)
+# 매물 목록 (지도 영역 기반 - 미사용)
 COMPLEX_LISTING = KBEndpoint(
     name="complex_listing",
     base_url=KB_API_BASE,
     path="/land-property/propList/stutCdFilter",
     method="POST",
     description="매물 목록 (좌표 기반). 파라미터: selectCode, zoomLevel, startLat/Lng, endLat/Lng 등",
+)
+
+# 단지 브리프 정보 (매물 조회의 선행 API)
+COMPLEX_BRIF = KBEndpoint(
+    name="complex_brif",
+    base_url=KB_API_BASE,
+    path="/land-complex/complex/brif",
+    method="GET",
+    description="단지 브리프 정보. 파라미터: 단지기본일련번호. propList/main의 POST body로 사용.",
+)
+
+# 단지별 매물 목록 (실제 개별 매물 데이터)
+COMPLEX_PROP_LIST = KBEndpoint(
+    name="complex_prop_list",
+    base_url=KB_API_BASE,
+    path="/land-property/propList/main",
+    method="POST",
+    description="단지별 매물 목록. brif 데이터 + 페이지 파라미터를 POST body로 전송. 응답: propertyList[]",
 )
 
 # 단지별 매물 건수

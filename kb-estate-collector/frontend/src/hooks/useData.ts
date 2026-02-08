@@ -26,7 +26,6 @@ export function useTransactions(params?: {
   return useQuery({
     queryKey: ["transactions", params],
     queryFn: () => dataApi.transactions(params),
-    enabled: !!params?.complex_id,
   })
 }
 
@@ -39,6 +38,5 @@ export function useListings(params?: {
   return useQuery({
     queryKey: ["listings", params],
     queryFn: () => dataApi.listings(params),
-    enabled: !!params?.complex_id,
   })
 }

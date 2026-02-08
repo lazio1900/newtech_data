@@ -1,0 +1,398 @@
+[
+  {
+    "url": "https://api.kbland.kr/land-property/property/getLocInfoCnt?%EB%B2%95%EC%A0%95%EB%8F%99%EC%BD%94%EB%93%9C=",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_count": 4,
+    "data_first": "{\"콘텐츠일련번호\": 12, \"콘텐츠제목명\": \"입지 끝판왕 '잠실'의 가치, 이미 좋은데 더 좋아진다?!\", \"콘텐츠타입구분\": \"Y\", \"콘텐츠시작일시\": \"2025-05-01T00:00:00\", \"콘텐츠종료일시\": \"2026-05-28T00:00:00\", \"법정동코드\": \"1171000000\", \"콘텐츠링크내용\": \"https://youtu.be/EE0qk8qv6Yg\", \"웹뷰설정코드\": \"2\", \"시군구코드\": \"11710\", \"읍면동코드\": \"00000\"}"
+  },
+  {
+    "url": "https://api.kbland.kr/land-extra/banner/byPageTypeAds?%ED%99%88%ED%99%94%EB%A9%B4%EA%B5%AC%EB%B6%84=15",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_count": 1,
+    "data_first": "{\"색상\": \"\", \"단지기본일련번호\": \"\", \"노출종료일시\": \"2030-12-31 08:59:00\", \"리뉴얼이미지파일경로\": \"/kbstar/land/img/home/renewal/date/20250910/\", \"노출순위\": 1, \"랜덤노출여부\": \"0\", \"PC웹링크명\": \"\", \"PC웹서브링크설정코드\": \"4\", \"서브문구\": \"\", \"PC웹서브링크명\": \"\", \"서브링크\": \"\", \"이미지도메인URL\": \"https://file.kbland.kr/image\", \"추적배너일련번호\": \"0\", \"모바일웹링크설정코드\": \"4\", \"이미지파일명\": \"로그인하기 뉴홈바텀시트_27fef754d20dc299.png\", \"링크웹뷰설정코드\": \"7\", \"링크버튼명\": \"\", \"모바일웹서브링크설정코드\": \"4\", \"링크\": \"\", \"홈화면구분명\": \"비로그인 대상\", \"altText내용\": \"\", \"홈화면일련번호\": 128, \"서브링크버튼명\": \"\", \"등록일시\": \"20260206\", "
+  },
+  {
+    "url": "https://api.kbland.kr/land-extra/userNotice/getUrgentNotice",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_keys": [
+      "urgentNotice"
+    ]
+  },
+  {
+    "url": "https://api.kbland.kr/land-complex/count/complexes/rankings/views",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": null
+  },
+  {
+    "url": "https://api.kbland.kr/land-extra/banner/byPageTypeAds?%ED%99%88%ED%99%94%EB%A9%B4%EA%B5%AC%EB%B6%84=16",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_count": 0
+  },
+  {
+    "url": "https://api.kbland.kr/land-extra/banner/byPageTypeAds?%ED%99%88%ED%99%94%EB%A9%B4%EA%B5%AC%EB%B6%84=2",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_count": 4,
+    "data_first": "{\"색상\": \"\", \"단지기본일련번호\": \"\", \"노출종료일시\": \"2026-02-09 16:59:00\", \"리뉴얼이미지파일경로\": \"/kbstar/land/img/home/renewal/date/20260123/\", \"노출순위\": 2, \"랜덤노출여부\": \"0\", \"PC웹링크명\": \"https://www.kbland.kr/hug\", \"PC웹서브링크설정코드\": \"1\", \"서브문구\": \"\", \"PC웹서브링크명\": \"https://www.kbland.kr/hug\", \"서브링크\": \"DeunDeunHouseIntro\", \"이미지도메인URL\": \"https://file.kbland.kr/image\", \"추적배너일련번호\": \"221\", \"모바일웹링크설정코드\": \"1\", \"이미지파일명\": \"hug든든전세주택 바텀시트_18a16e9bd59aee84.png\", \"링크웹뷰설정코드\": \"4\", \"링크버튼명\": \"\", \"모바일웹서브링크설정코드\": \"1\", \"링크\": \"DeunDeunHouseIntro\","
+  },
+  {
+    "url": "https://api.kbland.kr/land-complex/map/getAllPremiumComplexMarkerList",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_count": 0
+  },
+  {
+    "url": "https://api.kbland.kr/land-extra/temp/serviceAllowCnt",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_keys": [
+      "안심여부",
+      "일련번호",
+      "접속허용카운트"
+    ]
+  },
+  {
+    "url": "https://api.kbland.kr/land-price/price/regionPrice?%EB%B2%95%EC%A0%95%EB%8F%99%EC%BD%94%EB%93%9C=&%EB%A0%88%EB%B2%A8=15&%EC%8B%9C%EC%84%B8%EC%83%81%ED%83%9C%EA%B5%AC%EB%B6%84=2&%EC%8B%9C%EC%9E%91%EC%9C%84%EB%8F%84%EC%A7%80%EC%A0%90=37.6442181&%EC%8B%9C%EC%9E%91%EA%B2%BD%EB%8F%84%EC%A7%80%EC%A0%90=127.0536984&%EC%A2%85%EB%A3%8C%EC%9C%84%EB%8F%84%EC%A7%80%EC%A0%90=37.6686805&%EC%A2%85%EB%A3%8C%EA%B2%BD%EB%8F%84%EC%A7%80%EC%A0%90=127.10863&webCheck=Y",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_count": 1,
+    "data_first": "{\"상위시지역여부\": \"0\", \"실거래전세평균가\": \"4.5\", \"매물전세평균가\": \"4.6\", \"매매평당가\": 2644, \"전세가율\": \"58.99\", \"시세기준년월일\": \"20260206\", \"월간매매증감액\": \"904\", \"매매평균가\": \"7.3\", \"실거래매매평균가\": \"8.0\", \"월간전세증감액\": \"548\", \"실거래매매건수증감율\": \"-21.26\", \"실거래전세건수증감수\": -15, \"월간전세변동률\": \"1.28\", \"법정동코드\": \"1135010600\", \"주간매매변동률순위\": 1, \"실거래매매건수\": 274, \"매매증가액\": 0, \"원전세평균가\": 43249, \"기준년월일\": \"20260206\", \"실거래전세건수증감율\": \"-2.34\", \"매물매매평균가순위\": 2, \"상위레벨지역명\": \"서울시 노원구\", \"실거래매매평균가순위\": 1, \"주간전세변동률순위\": 1, \"주간전세변동률\": \"0.00\", \"매매평균가순위\": 1, \"wgs84중심위도\": \"37.648133358"
+  },
+  {
+    "url": "https://api.kbland.kr/land-complex/map/allAreaNameList?selectCode=2&zoomLevel=15&startLat=37.6442181&startLng=127.0536984&endLat=37.6686805&endLng=127.10863&%EB%AC%BC%EA%B1%B4%EC%A2%85%EB%A5%98=01,05,41&%EA%B1%B0%EB%9E%98%EC%9C%A0%ED%98%95=1,2,3&%EB%A7%A4%EB%A7%A4%EC%8B%9C%EC%9E%91%EA%B0%92=&%EB%A7%A4%EB%A7%A4%EC%A2%85%EB%A3%8C%EA%B0%92=&%EB%B3%B4%EC%A6%9D%EA%B8%88%EC%8B%9C%EC%9E%91%EA%B0%92=&%EB%B3%B4%EC%A6%9D%EA%B8%88%EC%A2%85%EB%A3%8C%EA%B0%92=&%EC%9B%94%EC%84%B8%EC%8B%9C%EC%9E%91%EA%B0%92=&%EC%9B%94%EC%84%B8%EC%A2%85%EB%A3%8C%EA%B0%92=&%EB%A9%B4%EC%A0%81%EC%8B%9C%EC%9E%91%EA%B0%92=&%EB%A9%B4%EC%A0%81%EC%A2%85%EB%A3%8C%EA%B0%92=&%EC%A4%80%EA%B3%B5%EB%85%84%EB%8F%84%EC%8B%9C%EC%9E%91%EA%B0%92=&%EC%A4%80%EA%B3%B5%EB%85%84%EB%8F%84%EC%A2%85%EB%A3%8C%EA%B0%92=&%EB%B0%A9%EC%88%98=&%EC%9A%95%EC%8B%A4%EC%88%98=&%EC%84%B8%EB%8C%80%EC%88%98%EC%8B%9C%EC%9E%91%EA%B0%92=&%EC%84%B8%EB%8C%80%EC%88%98%EC%A2%85%EB%A3%8C%EA%B0%92=&%EA%B4%80%EB%A6%AC%EB%B9%84%EC%8B%9C%EC%9E%91%EA%B0%92=&%EA%B4%80%EB%A6%AC%EB%B9%84%EC%A2%85%EB%A3%8C%EA%B0%92=&%EC%9A%A9%EC%A0%81%EB%A5%A0%EC%8B%9C%EC%9E%91%EA%B0%92=&%EC%9A%A9%EC%A0%81%EB%A5%A0%EC%A2%85%EB%A3%8C%EA%B0%92=&%EA%B1%B4%ED%8F%90%EC%9C%A8%EC%8B%9C%EC%9E%91%EA%B0%92=&%EA%B1%B4%ED%8F%90%EC%9C%A8%EC%A2%85%EB%A3%8C%EA%B0%92=&%EC%A0%84%EC%84%B8%EA%B0%80%EC%9C%A8%EC%8B%9C%EC%9E%91%EA%B0%92=&%EC%A0%84%EC%84%B8%EA%B0%80%EC%9C%A8%EC%A2%85%EB%A3%8C%EA%B0%92=&%EB%A7%A4%EB%A7%A4%EC%A0%84%EC%84%B8%EC%B0%A8%EC%8B%9C%EC%9E%91%EA%B0%92=&%EB%A7%A4%EB%A7%A4%EC%A0%84%EC%84%B8%EC%B0%A8%EC%A2%85%EB%A3%8C%EA%B0%92=&%EC%9B%94%EC%84%B8%EC%88%98%EC%9D%B5%EB%A5%A0%EC%8B%9C%EC%9E%91%EA%B0%92=&%EC%9B%94%EC%84%B8%EC%88%98%EC%9D%B5%EB%A5%A0%EC%A2%85%EB%A3%8C%EA%B0%92=&%EA%B5%AC%EC%A1%B0=&%EC%A3%BC%EC%B0%A8=&%EC%97%98%EB%A6%AC%EB%B2%A0%EC%9D%B4%ED%84%B0=&%EB%B3%B4%EC%95%88%EC%98%B5%EC%85%98=&%EB%A7%A4%EB%AC%BC=&%EC%9C%B5%EC%9E%90%EA%B8%88=&%EB%B6%84%EC%96%91%EB%8B%A8%EC%A7%80%EA%B5%AC%EB%B6%84%EC%BD%94%EB%93%9C=C01&%EC%9D%BC%EB%B0%98%EB%B6%84%EC%96%91%EC%97%AC%EB%B6%80=1,0&%EB%B6%84%EC%96%91%EC%A7%84%ED%96%89%EB%8B%A8%EA%B3%84%EC%BD%94%EB%93%9C=S01,S11,S12&%EC%98%B5%EC%85%98=&%EC%A0%90%ED%8F%AC%EC%88%98%EC%8B%9C%EC%9E%91%EA%B0%92=&%EC%A0%90%ED%8F%AC%EC%88%98%EC%A2%85%EB%A3%8C%EA%B0%92=&%EC%A7%80%EC%83%81%EC%B8%B5=&%EC%A7%80%ED%95%98%EC%B8%B5=&%EC%A7%80%EB%AA%A9=&%EC%9A%A9%EB%8F%84%EC%A7%80%EC%97%AD=&%EC%B6%94%EC%A7%84%ED%98%84%ED%99%A9=&webCheck=Y&latitude=37.656449300000006&longitude=127.0811642",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_keys": [
+      "투기지역",
+      "투기과열지구",
+      "법정동명",
+      "시군구명",
+      "법정동리스트",
+      "조정대상지역",
+      "시도명",
+      "시도리스트",
+      "시군구리스트"
+    ],
+    "data.법정동리스트_count": 5,
+    "data.법정동리스트_first": "{\"법정동명\": \"공릉동\", \"법정동코드\": \"1135010300\", \"wgs84중심위도\": \"37.630787653782086\", \"wgs84중심경도\": \"127.09225493883352\"}",
+    "data.시도리스트_count": 17,
+    "data.시도리스트_first": "{\"법정동코드\": \"5100000000\", \"wgs84중심위도\": \"37.8603672\", \"wgs84중심경도\": \"128.3115261\", \"시도명1\": \"강원\", \"시도명\": \"강원도\"}",
+    "data.시군구리스트_count": 25,
+    "data.시군구리스트_first": "{\"법정동코드\": \"1168000000\", \"wgs84중심위도\": \"37.5172363\", \"wgs84중심경도\": \"127.0473248\", \"시군구명\": \"강남구\"}"
+  },
+  {
+    "url": "https://api.kbland.kr/land-property/propList/stutCdFilter/count",
+    "method": "POST",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "content-type": "application/json"
+    },
+    "post_data": "{\"selectCode\":\"2\",\"zoomLevel\":15,\"startLat\":37.6442181,\"startLng\":127.0536984,\"endLat\":37.6686805,\"endLng\":127.10863,\"물건종류\":\"01,05,41\",\"거래유형\":\"1,2,3\",\"매매시작값\":\"\",\"매매종료값\":\"\",\"보증금시작값\":\"\",\"보증금종료값\":\"\",\"월세시작값\":\"\",\"월세종료값\":\"\",\"면적시작값\":\"\",\"면적종료값\":\"\",\"준공년도시작값\":\"\",\"준공년도종료값\":\"\",\"방수\":\"\",\"욕실수\":\"\",\"세대수시작값\":\"\",\"세대수종료값\":\"\",\"관리비시작값\":\"\",\"관리비종료값\":\"\",\"용적률시작값\":\"\",\"용적률종료값\":\"\",\"건폐율시작값\":\"\",\"건폐율종료값\":\"\",\"전세가율시작값\":\"\",\"전세가율종료값\":\"\",\"매매전세차시작값\":\"\",\"매매전세차종료값\":\"\",\"월세수익률시작값\":\"\",\"월세수익률종료값\":\"\",\"구조\":\"\",\"주차\":\"\",\"엘리베이터\":\"\",\"보안옵션\":\"\",\"매물\":\"\",\"융자금\":\"\",\"분양단지구분코드\":\"C01\",\"일반분양여부\":\"1,0\",\"분양진행단계코드\":\"S01,S11,S12\",\"옵션\":\"\",\"점포수시작값\":\"\",\"점포수종료값\":\"\",\"지상층\":\"\",\"지하층\":\"\",\"지목\":\"\",\"용도지역\":\"\",\"추진현황\":\"\",\"webCheck\":\"Y\",\"법정동코드\":\"1135010600\"}",
+    "resultCode": 11000,
+    "data_keys": [
+      "지역매물총건수",
+      "법정동명"
+    ]
+  },
+  {
+    "url": "https://api.kbland.kr/land-complex/map/map250mBlwInfoList",
+    "method": "POST",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "content-type": "application/json"
+    },
+    "post_data": "{\"selectCode\":\"2\",\"zoomLevel\":14,\"startLat\":37.6442181,\"startLng\":127.0536984,\"endLat\":37.6686805,\"endLng\":127.10863,\"물건종류\":\"01,05,41\",\"거래유형\":\"1,2,3\",\"매매시작값\":\"\",\"매매종료값\":\"\",\"보증금시작값\":\"\",\"보증금종료값\":\"\",\"월세시작값\":\"\",\"월세종료값\":\"\",\"면적시작값\":\"\",\"면적종료값\":\"\",\"준공년도시작값\":\"\",\"준공년도종료값\":\"\",\"방수\":\"\",\"욕실수\":\"\",\"세대수시작값\":\"\",\"세대수종료값\":\"\",\"관리비시작값\":\"\",\"관리비종료값\":\"\",\"용적률시작값\":\"\",\"용적률종료값\":\"\",\"건폐율시작값\":\"\",\"건폐율종료값\":\"\",\"전세가율시작값\":\"\",\"전세가율종료값\":\"\",\"매매전세차시작값\":\"\",\"매매전세차종료값\":\"\",\"월세수익률시작값\":\"\",\"월세수익률종료값\":\"\",\"구조\":\"\",\"주차\":\"\",\"엘리베이터\":\"\",\"보안옵션\":\"\",\"매물\":\"\",\"융자금\":\"\",\"분양단지구분코드\":\"C01\",\"일반분양여부\":\"1,0\",\"분양진행단계코드\":\"S01,S11,S12\",\"옵션\":\"\",\"점포수시작값\":\"\",\"점포수종료값\":\"\",\"지상층\":\"\",\"지하층\":\"\",\"지목\":\"\",\"용도지역\":\"\",\"추진현황\":\"\",\"webCheck\":\"Y\"}",
+    "resultCode": 11000,
+    "data_keys": [
+      "매물리스트"
+    ],
+    "data.매물리스트_count": 15,
+    "data.매물리스트_first": "{\"매물개수\": 530, \"wgs84경도\": 127.05670505, \"클러스터식별자\": \"510213002\", \"wgs84위도\": 37.66630855}"
+  },
+  {
+    "url": "https://api.kbland.kr/land-extra/banner/byPageTypeAds?%ED%99%88%ED%99%94%EB%A9%B4%EA%B5%AC%EB%B6%84=27",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "traceid": "user_202602089000",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_count": 1,
+    "data_first": "{\"색상\": \"#8276C8\", \"단지기본일련번호\": \"\", \"노출종료일시\": \"2026-03-31 23:59:00\", \"리뉴얼이미지파일경로\": \"/push/20260108/\", \"노출순위\": 1, \"랜덤노출여부\": \"\", \"PC웹링크명\": \"https://kbland.kr/onetwo\", \"PC웹서브링크설정코드\": \"\", \"서브문구\": \"\", \"PC웹서브링크명\": \"\", \"서브링크\": \"\", \"이미지도메인URL\": \"https://file.kbland.kr/image\", \"추적배너일련번호\": \"210\", \"모바일웹링크설정코드\": \"1\", \"이미지파일명\": \"\", \"링크웹뷰설정코드\": \"4\", \"링크버튼명\": \"\", \"모바일웹서브링크설정코드\": \"\", \"링크\": \"OneTwoRoomSpecialZonePage\", \"홈화면구분명\": \"매물 리스트 상단 배너\", \"altText내용\": \"원투룸 특화존 홍보배너\", \"홈화면일련번호\": 486, \"서브링크버튼명\": \"\", \"등록일시\": \"2"
+  },
+  {
+    "url": "https://api.kbland.kr/land-log-collect/v1/logData",
+    "method": "POST",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "traceid": "user_202602089000",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "content-type": "application/json"
+    },
+    "post_data": "{\"user\":{\"deviceId\":\"user_202602089000\",\"deviceType\":\"WEB\"},\"action\":{\"value\":\"MP110000P00\",\"channel\":\"kbland\"}}",
+    "resultCode": 11000
+  },
+  {
+    "url": "https://api.kbland.kr/land-complex/complexComm/dongList?%EB%8B%A8%EC%A7%80%EA%B8%B0%EB%B3%B8%EC%9D%BC%EB%A0%A8%EB%B2%88%ED%98%B8=971",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "traceid": "user_202602089000",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_count": 5,
+    "data_first": "{\"단지기본일련번호\": 971, \"동별총세대수\": null, \"대표단지여부\": \"1\", \"동명\": \"101\", \"사용승인일\": \"1999.11.25\", \"매물종별구분\": \"01\", \"건물최고층수\": 22, \"동일련번호\": 1619, \"상세번지내용\": \"1285\"}"
+  },
+  {
+    "url": "https://api.kbland.kr/land-complex/complex/mpriByType?%EB%8B%A8%EC%A7%80%EA%B8%B0%EB%B3%B8%EC%9D%BC%EB%A0%A8%EB%B2%88%ED%98%B8=971",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "traceid": "user_202602089000",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_count": 4,
+    "data_first": "{\"단지기본일련번호\": 971, \"공급면적\": \"83.45\", \"계약면적\": \"100.56\", \"월세건수\": 0, \"공급면적평N\": \"25\", \"주택형타입내용\": \"\", \"매매일반거래가\": 44500, \"전세건수\": 0, \"면적일련번호\": 50261, \"공급면적평\": \"25.24\", \"매매상한가\": 47500, \"50세대미만여부\": \"0\", \"전용면적\": \"59.40\", \"물건식별자\": \"KBM001117\", \"월임대최저금액\": 93, \"월임대최고금액\": 98, \"매매건수\": 16, \"계약면적평\": \"30.41\", \"유사면적구분\": \"2\", \"월세보증금액\": 3000, \"전용면적평\": \"17.96\", \"시세제공여부\": \"1\", \"전세일반거래가\": 27500, \"매매하한가\": 40500, \"세대수\": 210}"
+  },
+  {
+    "url": "https://api.kbland.kr/land-extra/bannerTrack/setBnrLog",
+    "method": "POST",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "traceid": "user_202602089000",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "content-type": "application/json"
+    },
+    "post_data": "{\"추적배너일련번호\":4324,\"광고통계구분\":\"P\"}",
+    "resultCode": 11000,
+    "data_keys": [
+      "처리건수"
+    ]
+  },
+  {
+    "url": "https://api.kbland.kr/land-complex/complex/brif?%EB%8B%A8%EC%A7%80%EA%B8%B0%EB%B3%B8%EC%9D%BC%EB%A0%A8%EB%B2%88%ED%98%B8=971",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "traceid": "user_202602089000",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_keys": [
+      "단지기본일련번호",
+      "물건식별자",
+      "이미지디렉토리",
+      "단지명",
+      "매물종별구분명",
+      "재건축여부",
+      "도시형생활주택여부",
+      "준공년월",
+      "준공년수",
+      "총세대수",
+      "총동수",
+      "최소전용면적",
+      "최대전용면적",
+      "최소공급면적",
+      "최대공급면적",
+      "최소전용면적평",
+      "최대전용면적평",
+      "최소공급면적평",
+      "최대공급면적평",
+      "최소계약면적",
+      "최대계약면적",
+      "최소계약면적평",
+      "최대계약면적평",
+      "최소매매일반거래가",
+      "최대매매일반거래가",
+      "최소전세일반거래가",
+      "최대전세일반거래가",
+      "매매건수",
+      "전세건수",
+      "월세건수",
+      "시세여부",
+      "시세노출사용여부",
+      "관심단지여부",
+      "단지알림수신여부",
+      "wgs84경도",
+      "wgs84위도",
+      "호실정보존재여부",
+      "시군구명",
+      "법정동명",
+      "관심등록수",
+      "50세대미만여부",
+      "단지AI시세여부",
+      "viewCount",
+      "이미지파일명",
+      "이미지파일명_800",
+      "이미지파일명_1920",
+      "컨텐츠경로",
+      "이미지도메인URL",
+      "전자계약가능개수"
+    ]
+  },
+  {
+    "url": "https://api.kbland.kr/land-property/propList/main",
+    "method": "POST",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "traceid": "user_202602089000",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "content-type": "application/json"
+    },
+    "post_data": "{\"단지기본일련번호\":971,\"물건식별자\":\"KBM001117\",\"이미지디렉토리\":1117,\"단지명\":\"동아불암\",\"매물종별구분명\":\"아파트\",\"재건축여부\":\"0\",\"도시형생활주택여부\":\"0\",\"준공년월\":\"1999.11\",\"준공년수\":28,\"총세대수\":673,\"총동수\":5,\"최소전용면적\":\"59.40\",\"최대전용면적\":\"114.24\",\"최소공급면적\":\"83.45\",\"최대공급면적\":\"141.71\",\"최소전용면적평\":\"17.9\",\"최대전용면적평\":\"34.5\",\"최소공급면적평\":\"25\",\"최대공급면적평\":\"42\",\"최소계약면적\":\"100.56\",\"최대계약면적\":\"174.63\",\"최소계약면적평\":\"30\",\"최대계약면적평\":\"52\",\"최소매매일반거래가\":44500,\"최대매매일반거래가\":68000,\"최소전세일반거래가\":27500,\"최대전세일반거래가\":47000,\"매매건수\":66,\"전세건수\":2,\"월세건수\":10,\"시세여부\":\"Y\",\"시세노출사용여부\":\"Y\",\"관심단지여부\":\"0\",\"단지알림수신여부\":\"0\",\"wgs84경도\":\"127.0799143\",\"wgs84위도\":\"37.6670710\",\"호실정보존재여부\":\"1\",\"시군구명\":\"노원구\",\"법정동명\":\"상계동\",\"관심등록수\":38,\"50세대미만여부\":\"0\",\"단지AI시세여부\":\"0\",\"viewCount\":18,\"이미지파일명\":\"MTExNzEwMDAyOTE1NDA=.jpg\",\"이미지파일명_800\":\"MTExNzEwMDAyOTE1NzI=.jpg\",\"이미지파일명_1920\":\"MTExNzEwMDAyOTE1MzE=.jpg\",\"컨텐츠경로\":\"/kbstar/land/img/alian/kms/complex/photo/objctidnfr/1117/\",\"이미지도메인URL\":\"https://file.kbland.kr/image\",\"전자계약가능개수\":\"0\",\"페이지번호\":1,\"페이지목록수\":10,\"중복타입\":\"02\",\"정렬타입\":\"date\",\"매물거래구분\":\"\",\"면적일련번호\":\"\",\"전자계약여부\":\"0\",\"비대면대출여부\":\"0\",\"클린주택여부\":\"0\",\"honeyYn\":\"0\"}",
+    "resultCode": 11000,
+    "data_keys": [
+      "페이지번호",
+      "클린주택버튼노출여부",
+      "페이지개수",
+      "propertyList",
+      "총매물건수",
+      "총조회수",
+      "미중복총건수",
+      "전자계약버튼여부",
+      "비대면대출버튼노출여부",
+      "페이지목록수"
+    ],
+    "data.propertyList_count": 10,
+    "data.propertyList_first": "{\"해당층구분\": \"1\", \"동영상여부\": \"0\", \"연면적\": null, \"욕실수\": 1, \"x좌표값\": null, \"주택형타입내용\": \"\", \"최소월세가\": \"\", \"매물유입구분\": \"A\", \"wgs84위도\": \"37.6667742\", \"건축면적\": null, \"허위매물처리결과구분명\": \"해당무\", \"건축물용도코드명\": \"공동주택\", \"단지명\": \"동아불암\", \"월세보증금\": null, \"방수\": 3, \"최소월세보증금\": \"\", \"사용월\": \"11\", \"전용면적\": 59, \"재건축여부\": \"0\", \"중개업소주소\": \"서울 노원구 덕릉로 753,노원롯데캐슬시그니청 101동 1-14호\", \"복층여부표시\": \"\", \"중개업소대표자명\": \"곽영옥\", \"등록년월일\": \"2026.02.07\", \"중개업소사업자구분\": \"\", \"건물동명\": \"101\", \"입주가능일타입\": null, \"매물상태구분\": \"2\", \"가주소여부\": \"0\", \"사용년차\": 28.0, \"nodupCnt\": 78, \"우대"
+  },
+  {
+    "url": "https://api.kbland.kr/land-extra/banner/byPageTypeAds?%ED%99%88%ED%99%94%EB%A9%B4%EA%B5%AC%EB%B6%84=28",
+    "method": "GET",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "traceid": "user_202602089000",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    },
+    "resultCode": 11000,
+    "data_count": 1,
+    "data_first": "{\"색상\": \"\", \"단지기본일련번호\": \"\", \"노출종료일시\": \"2026-03-13 23:59:00\", \"리뉴얼이미지파일경로\": \"/push/20260116/\", \"노출순위\": 1, \"랜덤노출여부\": \"0\", \"PC웹링크명\": \"https://www.kbstar.com\", \"PC웹서브링크설정코드\": \"0\", \"서브문구\": \"스타벅스 커피 10잔 100% 지급\", \"PC웹서브링크명\": \"\", \"서브링크\": \"\", \"이미지도메인URL\": \"https://file.kbland.kr/image\", \"추적배너일련번호\": \"218\", \"모바일웹링크설정코드\": \"3\", \"이미지파일명\": \"\", \"링크웹뷰설정코드\": \"3\", \"링크버튼명\": \"\", \"모바일웹서브링크설정코드\": \"0\", \"링크\": \"liivland://map?detailType=EVENT&url=https%3A%2F%2Fwww.kbland.kr%2Fexternal-event.html%3FeNo%3D_p622\", \"홈화면구분명\":"
+  },
+  {
+    "url": "https://api.kbland.kr/land-extra/bannerTrack/setBnrLog",
+    "method": "POST",
+    "status": 200,
+    "headers": {
+      "webservice": "1",
+      "accept": "application/json, text/plain, */*",
+      "traceid": "user_202602089000",
+      "referer": "https://kbland.kr/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "content-type": "application/json"
+    },
+    "post_data": "{\"추적배너일련번호\":\"210\",\"광고통계구분\":\"P\"}",
+    "resultCode": 11000,
+    "data_keys": [
+      "처리건수"
+    ]
+  }
+]

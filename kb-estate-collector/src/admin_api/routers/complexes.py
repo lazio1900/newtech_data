@@ -1,10 +1,13 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel
 
 from src.core.database import get_db
 from src.models import Complex, Area, PriorityLevel
+from src.models.crawl import CrawlRun, CrawlTask, RunStatus
 
 router = APIRouter()
 
@@ -131,6 +134,77 @@ def delete_complex(complex_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     return None
+
+
+@router.post("/{complex_id}/collect", status_code=status.HTTP_202_ACCEPTED)
+def collect_complex(complex_id: int, db: Session = Depends(get_db)):
+    """단지 즉시 수집 (시세 + 실거래 + 매물)"""
+    complex_obj = db.query(Complex).filter(Complex.id == complex_id).first()
+    if not complex_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Complex not found",
+        )
+
+    from src.workers.tasks import run_kb_collection
+
+    run = CrawlRun(
+        job_id=None,
+        status=RunStatus.PENDING,
+        started_at=datetime.utcnow(),
+    )
+    db.add(run)
+    db.commit()
+
+    target_config = f'{{"complex_ids": [{complex_id}]}}'
+    task = run_kb_collection.delay(
+        job_id=None, run_id=run.id, target_config=target_config,
+    )
+
+    return {
+        "message": f"{complex_obj.name} 수집이 시작되었습니다",
+        "run_id": run.id,
+        "task_id": task.id,
+    }
+
+
+@router.get("/last-runs")
+def get_complex_last_runs(db: Session = Depends(get_db)):
+    """각 단지의 마지막 수집 상태를 반환"""
+    # CrawlTask.task_key에서 complex_id를 추출하여 가장 최신 run 정보를 매핑
+    # task_key format: kb_price_{complex_id}_{area_id}, kb_transaction_{complex_id}, kb_listing_{complex_id}
+    from sqlalchemy import text
+
+    # 모든 task를 가져와 complex_id별 가장 최신 run 정보를 추출
+    tasks = (
+        db.query(CrawlTask, CrawlRun)
+        .join(CrawlRun, CrawlTask.run_id == CrawlRun.id)
+        .order_by(CrawlRun.started_at.desc())
+        .all()
+    )
+
+    result: Dict[int, Any] = {}
+    for task, run in tasks:
+        # task_key에서 complex_id 추출
+        parts = task.task_key.split("_")
+        try:
+            # kb_price_3_1 → complex_id=3, kb_transaction_3 → complex_id=3
+            if parts[0] == "kb" and len(parts) >= 3:
+                cid = int(parts[2])
+            else:
+                continue
+        except (ValueError, IndexError):
+            continue
+
+        if cid not in result:
+            result[cid] = {
+                "run_id": run.id,
+                "status": run.status.value if hasattr(run.status, 'value') else str(run.status),
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+            }
+
+    return result
 
 
 @router.post("/discover-region")

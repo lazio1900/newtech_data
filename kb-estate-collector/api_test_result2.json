@@ -1,0 +1,76 @@
+[
+  {
+    "api": "transaction_past_year",
+    "response": {
+      "dataHeader": {
+        "resultCode": "10000",
+        "message": "NO_ERROR"
+      },
+      "dataBody": {
+        "resultCode": 33210,
+        "message": "No Data."
+      }
+    }
+  },
+  {
+    "api": "transaction_with_property_type",
+    "response": {
+      "dataHeader": {
+        "resultCode": "10000",
+        "message": "NO_ERROR"
+      },
+      "dataBody": {
+        "resultCode": 33210,
+        "message": "No Data."
+      }
+    }
+  },
+  {
+    "api": "listing_/land-property/propList/propListInq",
+    "status": 200,
+    "response": {
+      "dataHeader": {
+        "resultCode": "10500",
+        "message": "INTERNAL_SERVER_ERROR"
+      },
+      "dataBody": {
+        "timestamp": "2026-02-08T19:07:10.704+00:00",
+        "status": 404,
+        "error": "Not Found",
+        "path": "/land-property/propList/propListInq"
+      }
+    }
+  },
+  {
+    "api": "listing_/land-property/propList/getPropListByComplexNo",
+    "status": 200,
+    "response": {
+      "dataHeader": {
+        "resultCode": "10500",
+        "message": "INTERNAL_SERVER_ERROR"
+      },
+      "dataBody": {
+        "timestamp": "2026-02-08T19:07:10.774+00:00",
+        "status": 404,
+        "error": "Not Found",
+        "path": "/land-property/propList/getPropListByComplexNo"
+      }
+    }
+  },
+  {
+    "api": "listing_/land-property/propList/hscmPropListInq",
+    "status": 200,
+    "response": {
+      "dataHeader": {
+        "resultCode": "10500",
+        "message": "INTERNAL_SERVER_ERROR"
+      },
+      "dataBody": {
+        "timestamp": "2026-02-08T19:07:10.824+00:00",
+        "status": 404,
+        "error": "Not Found",
+        "path": "/land-property/propList/hscmPropListInq"
+      }
+    }
+  }
+]

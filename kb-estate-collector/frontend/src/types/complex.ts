@@ -29,3 +29,12 @@ export interface ComplexCreate {
   is_active?: boolean
   collect_listings?: boolean
 }
+
+export interface ComplexLastRun {
+  run_id: number
+  status: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export type ComplexLastRunMap = Record<number, ComplexLastRun>

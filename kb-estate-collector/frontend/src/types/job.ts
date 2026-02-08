@@ -13,6 +13,9 @@ export interface CrawlJob {
   rate_limit_per_minute: number
   created_at: string
   updated_at: string
+  last_run_id: number | null
+  last_run_status: string | null
+  last_run_at: string | null
 }
 
 export interface JobCreate {
@@ -23,4 +26,11 @@ export interface JobCreate {
   cron_schedule?: string
   max_concurrency?: number
   rate_limit_per_minute?: number
+}
+
+export interface JobUpdate {
+  name?: string
+  description?: string
+  cron_schedule?: string
+  target_config?: string
 }

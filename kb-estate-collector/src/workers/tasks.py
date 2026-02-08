@@ -222,6 +222,7 @@ def collect_kb_price_task(
         connector = KBPriceConnector(db_session=db)
         result = connector.collect(complex_id=complex_id, area_id=area_id)
 
+        items_saved = 0
         for item in result["items"]:
             existing = db.query(KBPrice).filter(
                 KBPrice.complex_id == complex_id,
@@ -247,12 +248,39 @@ def collect_kb_price_task(
                     fetched_at=datetime.utcnow(),
                     parser_version=item.get("parser_version"),
                 ))
+            items_saved += 1
+
+        # 최근실거래가 추출 (BasePrcInfoNew 응답에 포함)
+        raw_data = result.get("raw")
+        if raw_data:
+            area_obj = db.get(Area, area_id)
+            exclusive_m2 = (area_obj.exclusive_m2 if area_obj and area_obj.exclusive_m2 else None)
+
+            tx_data = connector.parse_recent_transaction(raw_data)
+            if tx_data and exclusive_m2 is not None:
+                existing_tx = db.query(Transaction).filter(
+                    Transaction.complex_id == complex_id,
+                    Transaction.contract_date == tx_data["contract_date"],
+                    Transaction.price == tx_data["price"],
+                    Transaction.exclusive_m2 == exclusive_m2,
+                ).first()
+                if not existing_tx:
+                    db.add(Transaction(
+                        complex_id=complex_id,
+                        contract_date=tx_data["contract_date"],
+                        price=tx_data["price"],
+                        exclusive_m2=exclusive_m2,
+                        floor=tx_data.get("floor"),
+                        source="kb",
+                        fetched_at=datetime.utcnow(),
+                    ))
+                    items_saved += 1
 
         db.commit()
         task_record.status = TaskStatus.SUCCESS
         task_record.items_collected = len(result["items"])
-        task_record.items_saved = len(result["items"])
-        logger.info(f"Task {task_key} completed: {len(result['items'])} items")
+        task_record.items_saved = items_saved
+        logger.info(f"Task {task_key} completed: {len(result['items'])} prices, {items_saved} total saved")
         return {"status": "success", "items_collected": len(result["items"])}
 
     except BaseException as e:
@@ -442,7 +470,7 @@ def collect_kb_listing_task(
 
 
 # =============================================================================
-# KB 통합 수집 (시세 + 실거래 + 매물)
+# KB 통합 수집 (시세 + 최근실거래가)
 # =============================================================================
 
 @celery_app.task(base=DatabaseTask, bind=True)
@@ -451,7 +479,7 @@ def run_kb_collection(
 ) -> Dict[str, Any]:
     """
     KB 데이터 통합 수집.
-    각 단지마다 시세(면적별) + 실거래가 + 매물을 한번에 수집.
+    각 단지마다 시세(면적별) 수집 — BasePrcInfoNew에서 시세 + 최근실거래가 동시 추출.
     """
     db = self.db
 
@@ -483,7 +511,7 @@ def run_kb_collection(
             # 면적이 없으면 KB API에서 자동 조회
             areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
 
-            # 시세 (면적별)
+            # 시세 (면적별) — BasePrcInfoNew에서 시세 + 최근실거래가 동시 추출
             for area in areas:
                 collect_kb_price_task.delay(
                     run_id=run.id,
@@ -492,14 +520,7 @@ def run_kb_collection(
                 )
                 total_tasks += 1
 
-            # 실거래가
-            collect_kb_transaction_task.delay(
-                run_id=run.id,
-                complex_id=complex_obj.id,
-            )
-            total_tasks += 1
-
-            # 매물
+            # 매물 수집 (단지별)
             collect_kb_listing_task.delay(
                 run_id=run.id,
                 complex_id=complex_obj.id,
@@ -510,7 +531,7 @@ def run_kb_collection(
         run.total_tasks = total_tasks
         db.commit()
 
-        logger.info(f"Run {run.id}: Launched {total_tasks} tasks for {len(complexes)} complexes (price+transaction+listing)")
+        logger.info(f"Run {run.id}: Launched {total_tasks} tasks for {len(complexes)} complexes")
         return {"run_id": run.id, "total_tasks": total_tasks, "complexes_count": len(complexes)}
 
     except Exception as e:
@@ -551,9 +572,7 @@ def run_region_collection(
     """
     지역 기반 전체 수집:
     1. 단지 발견 (미등록 단지 자동 추가)
-    2. 시세 수집 (단지별/면적별)
-    3. 실거래가 수집 (단지별)
-    4. 매물 수집 (collect_listings=True인 단지)
+    2. 시세 수집 (단지별/면적별) — BasePrcInfoNew에서 시세 + 최근실거래가 동시 추출
     """
     db = self.db
 
@@ -608,18 +627,12 @@ def run_region_collection(
             )
             total_tasks += 1
 
-        collect_kb_transaction_task.delay(
+        # 매물 수집 (단지별)
+        collect_kb_listing_task.delay(
             run_id=run.id,
             complex_id=complex_obj.id,
         )
         total_tasks += 1
-
-        if complex_obj.collect_listings:
-            collect_kb_listing_task.delay(
-                run_id=run.id,
-                complex_id=complex_obj.id,
-            )
-            total_tasks += 1
 
     run.total_tasks = total_tasks
     db.commit()

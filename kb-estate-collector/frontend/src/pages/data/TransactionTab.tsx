@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/table"
 import EmptyState from "@/components/shared/EmptyState"
 import { useTransactions } from "@/hooks/useData"
+import { useComplexes } from "@/hooks/useComplexes"
 import { formatPrice, formatDate, formatM2 } from "@/lib/format"
 
 interface TransactionTabProps {
@@ -20,10 +21,11 @@ export default function TransactionTab({ complexId }: TransactionTabProps) {
     complex_id: complexId,
     limit: 200,
   })
+  const { data: complexes } = useComplexes({ limit: 1000 })
 
-  if (!complexId) {
-    return <EmptyState message="단지를 선택하세요" />
-  }
+  const complexMap = new Map(
+    (complexes ?? []).map((c) => [c.id, c.name])
+  )
 
   return (
     <Card>
@@ -38,6 +40,7 @@ export default function TransactionTab({ complexId }: TransactionTabProps) {
           <Table>
             <TableHeader>
               <TableRow>
+                {!complexId && <TableHead>단지</TableHead>}
                 <TableHead>계약일</TableHead>
                 <TableHead>거래가</TableHead>
                 <TableHead>전용면적</TableHead>
@@ -48,6 +51,11 @@ export default function TransactionTab({ complexId }: TransactionTabProps) {
             <TableBody>
               {transactions.map((t) => (
                 <TableRow key={t.id}>
+                  {!complexId && (
+                    <TableCell className="text-sm">
+                      {complexMap.get(t.complex_id) ?? `#${t.complex_id}`}
+                    </TableCell>
+                  )}
                   <TableCell>{formatDate(t.contract_date)}</TableCell>
                   <TableCell className="font-medium">
                     {formatPrice(t.price)}

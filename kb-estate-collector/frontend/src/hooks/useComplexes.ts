@@ -51,3 +51,22 @@ export function useDiscoverRegion() {
     },
   })
 }
+
+export function useCollectComplex() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => complexesApi.collect(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["runs"] })
+      qc.invalidateQueries({ queryKey: ["complexLastRuns"] })
+    },
+  })
+}
+
+export function useComplexLastRuns() {
+  return useQuery({
+    queryKey: ["complexLastRuns"],
+    queryFn: () => complexesApi.getLastRuns(),
+    refetchInterval: 10_000,
+  })
+}

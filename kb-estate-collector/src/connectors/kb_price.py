@@ -2,6 +2,7 @@
 KB 시세 데이터 수집 커넥터.
 
 KB부동산에서 아파트 단지별 시세(일반가/상위평균가/하위평균가)를 수집합니다.
+BasePrcInfoNew 응답에서 최근실거래가와 매물건수도 함께 추출합니다.
 """
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import logging
@@ -144,6 +145,90 @@ class KBPriceConnector(KBBaseConnector):
 
         except Exception as e:
             raise ParserError(f"Failed to parse KB price data: {e}")
+
+    def parse_recent_transaction(self, raw_data: Any) -> Optional[Dict[str, Any]]:
+        """
+        BasePrcInfoNew 응답에서 최근실거래가 추출.
+
+        응답 내 최근실거래가 구조:
+        {
+            "거래금액": 299500,        # 만원
+            "평균거래금액": 308000,     # 만원
+            "거래층": "12",
+            "계약년월일": "20251114",  # YYYYMMDD
+            "실거래매매증감액": 41500
+        }
+        """
+        try:
+            data = raw_data
+            if isinstance(data, dict):
+                data = data.get("dataBody", data)
+                if isinstance(data, dict):
+                    data = data.get("data", data)
+
+            if not isinstance(data, dict):
+                return None
+
+            recent = data.get("최근실거래가", {})
+            if not isinstance(recent, dict):
+                return None
+
+            contract_date_raw = recent.get("계약년월일")
+            price_raw = recent.get("거래금액")
+
+            if not contract_date_raw or not price_raw:
+                return None
+
+            contract_date = self._parse_date(str(contract_date_raw))
+            price = self._to_won(price_raw)
+
+            if not contract_date or not price:
+                return None
+
+            floor = None
+            floor_raw = recent.get("거래층")
+            if floor_raw is not None:
+                try:
+                    floor = int(str(floor_raw).strip())
+                except (ValueError, TypeError):
+                    pass
+
+            return {
+                "contract_date": contract_date,
+                "price": price,
+                "floor": floor,
+                "source": "kb",
+            }
+        except Exception:
+            return None
+
+    def parse_listing_counts(self, raw_data: Any) -> Dict[str, int]:
+        """
+        BasePrcInfoNew 응답에서 매물 건수 추출.
+
+        응답 내 매매건수/전세건수/월세건수 포함.
+        """
+        try:
+            data = raw_data
+            if isinstance(data, dict):
+                data = data.get("dataBody", data)
+                if isinstance(data, dict):
+                    data = data.get("data", data)
+
+            if not isinstance(data, dict):
+                return {}
+
+            counts = {}
+            for key in ["매매건수", "전세건수", "월세건수"]:
+                val = data.get(key)
+                if val is not None:
+                    try:
+                        counts[key] = int(val)
+                    except (ValueError, TypeError):
+                        pass
+            return counts
+        except Exception:
+            return {}
 
     def _extract_price(self, data: dict, candidate_keys: List[str]) -> Optional[int]:
         """여러 후보 키에서 가격 추출 후 만원→원 변환"""

@@ -11,6 +11,7 @@ import {
 import StatusBadge from "@/components/shared/StatusBadge"
 import EmptyState from "@/components/shared/EmptyState"
 import { useListings } from "@/hooks/useData"
+import { useComplexes } from "@/hooks/useComplexes"
 import { LISTING_STATUS_LABELS } from "@/lib/constants"
 import { formatPrice, formatDate, formatM2 } from "@/lib/format"
 
@@ -25,10 +26,11 @@ export default function ListingTab({ complexId }: ListingTabProps) {
     status: statusFilter,
     limit: 200,
   })
+  const { data: complexes } = useComplexes({ limit: 1000 })
 
-  if (!complexId) {
-    return <EmptyState message="단지를 선택하세요" />
-  }
+  const complexMap = new Map(
+    (complexes ?? []).map((c) => [c.id, c.name])
+  )
 
   return (
     <Card>
@@ -56,11 +58,14 @@ export default function ListingTab({ complexId }: ListingTabProps) {
             로딩중...
           </p>
         ) : !listings || listings.length === 0 ? (
-          <EmptyState message="매물 데이터가 없습니다" />
+          <EmptyState
+            message="매물 데이터가 없습니다"
+          />
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
+                {!complexId && <TableHead>단지</TableHead>}
                 <TableHead>매물ID</TableHead>
                 <TableHead>호가</TableHead>
                 <TableHead>전용면적</TableHead>
@@ -72,6 +77,11 @@ export default function ListingTab({ complexId }: ListingTabProps) {
             <TableBody>
               {listings.map((l) => (
                 <TableRow key={l.id}>
+                  {!complexId && (
+                    <TableCell className="text-sm">
+                      {complexMap.get(l.complex_id) ?? `#${l.complex_id}`}
+                    </TableCell>
+                  )}
                   <TableCell className="text-xs font-mono text-muted-foreground">
                     {l.source_listing_id}
                   </TableCell>

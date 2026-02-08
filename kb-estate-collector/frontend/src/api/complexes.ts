@@ -1,5 +1,5 @@
 import apiClient from "./client"
-import type { Complex, ComplexCreate } from "@/types/complex"
+import type { Complex, ComplexCreate, ComplexLastRunMap } from "@/types/complex"
 
 export const complexesApi = {
   list: (params?: { skip?: number; limit?: number; is_active?: boolean }) =>
@@ -27,5 +27,17 @@ export const complexesApi = {
       }>("/api/complexes/discover-region", null, {
         params: { region_code: regionCode },
       })
+      .then((r) => r.data),
+
+  collect: (id: number) =>
+    apiClient
+      .post<{ message: string; run_id: number; task_id: string }>(
+        `/api/complexes/${id}/collect`,
+      )
+      .then((r) => r.data),
+
+  getLastRuns: () =>
+    apiClient
+      .get<ComplexLastRunMap>("/api/complexes/last-runs")
       .then((r) => r.data),
 }

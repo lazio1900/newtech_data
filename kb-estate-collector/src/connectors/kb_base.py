@@ -78,6 +78,7 @@ class KBBaseConnector(BaseConnector):
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
             "Accept-Encoding": "gzip, deflate, br",
+            "webservice": "1",
         }
 
     async def _get_http_client(self) -> httpx.AsyncClient:
@@ -87,6 +88,7 @@ class KBBaseConnector(BaseConnector):
                 headers=self._get_default_headers(),
                 timeout=30.0,
                 follow_redirects=True,
+                http2=True,
             )
         return self._http_client
 

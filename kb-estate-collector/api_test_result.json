@@ -1,0 +1,34 @@
+[
+  {
+    "api": "transaction",
+    "response": {
+      "dataHeader": {
+        "resultCode": "10000",
+        "message": "NO_ERROR"
+      },
+      "dataBody": {
+        "resultCode": 33210,
+        "message": "No Data."
+      }
+    }
+  },
+  {
+    "api": "listing_count",
+    "response": {
+      "dataHeader": {
+        "resultCode": "10000",
+        "message": "NO_ERROR"
+      },
+      "dataBody": {
+        "data": {
+          "전자계약여부": null,
+          "월세건수": 0,
+          "전체건수": 0,
+          "매매건수": 0,
+          "전세건수": 0
+        },
+        "resultCode": 11000
+      }
+    }
+  }
+]

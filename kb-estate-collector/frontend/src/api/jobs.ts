@@ -1,5 +1,5 @@
 import apiClient from "./client"
-import type { CrawlJob, JobCreate } from "@/types/job"
+import type { CrawlJob, JobCreate, JobUpdate } from "@/types/job"
 
 export const jobsApi = {
   list: (params?: { skip?: number; limit?: number; status_filter?: string }) =>
@@ -35,6 +35,9 @@ export const jobsApi = {
     apiClient
       .patch<{ message: string; job_id: number }>(`/api/jobs/${id}/resume`)
       .then((r) => r.data),
+
+  update: (id: number, data: JobUpdate) =>
+    apiClient.patch<CrawlJob>(`/api/jobs/${id}`, data).then((r) => r.data),
 
   runRegion: (regionCode: string, jobId?: number) =>
     apiClient

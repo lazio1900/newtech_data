@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, String, DateTime, Float, Date, ForeignKey, Text, Index, Enum, Boolean
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Float, Date, ForeignKey, Text, Index, Enum, Boolean
 from sqlalchemy.orm import relationship
 import enum
 from src.core.database import Base
@@ -24,9 +24,9 @@ class KBPrice(Base):
     
     # 시세 데이터
     as_of_date = Column(Date, nullable=False, comment="기준일")
-    general_price = Column(Integer, nullable=True, comment="일반가 (원)")
-    high_avg_price = Column(Integer, nullable=True, comment="상위평균가 (원)")
-    low_avg_price = Column(Integer, nullable=True, comment="하위평균가 (원)")
+    general_price = Column(BigInteger, nullable=True, comment="일반가 (원)")
+    high_avg_price = Column(BigInteger, nullable=True, comment="상위평균가 (원)")
+    low_avg_price = Column(BigInteger, nullable=True, comment="하위평균가 (원)")
     
     # 메타데이터
     source = Column(String(50), default="kb", comment="데이터 소스")
@@ -56,7 +56,7 @@ class Transaction(Base):
     
     # 거래 정보
     contract_date = Column(Date, nullable=False, comment="계약일")
-    price = Column(Integer, nullable=False, comment="거래가 (원)")
+    price = Column(BigInteger, nullable=False, comment="거래가 (원)")
     exclusive_m2 = Column(Float, nullable=False, comment="전용면적 (㎡)")
     floor = Column(Integer, nullable=True, comment="층")
     
@@ -90,7 +90,7 @@ class Listing(Base):
     
     # 매물 정보
     source_listing_id = Column(String(100), unique=True, nullable=False, comment="원천 매물 ID")
-    ask_price = Column(Integer, nullable=False, comment="호가 (원)")
+    ask_price = Column(BigInteger, nullable=False, comment="호가 (원)")
     exclusive_m2 = Column(Float, nullable=True, comment="전용면적 (㎡)")
     floor = Column(Integer, nullable=True, comment="층")
     

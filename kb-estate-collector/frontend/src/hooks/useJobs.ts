@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { jobsApi } from "@/api/jobs"
-import type { JobCreate } from "@/types/job"
+import type { JobCreate, JobUpdate } from "@/types/job"
 
 export function useJobs(params?: { skip?: number; limit?: number; status_filter?: string }) {
   return useQuery({
@@ -56,6 +56,15 @@ export function useResumeJob() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => jobsApi.resume(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["jobs"] }),
+  })
+}
+
+export function useUpdateJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: JobUpdate }) =>
+      jobsApi.update(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["jobs"] }),
   })
 }
