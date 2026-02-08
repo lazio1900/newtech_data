@@ -69,6 +69,7 @@ export default function JobListPage() {
   const pauseMutation = usePauseJob()
   const resumeMutation = useResumeJob()
   const regionMutation = useRunRegion()
+  const [regionLoading, setRegionLoading] = useState(false)
 
   return (
     <div>
@@ -259,17 +260,26 @@ export default function JobListPage() {
             수집합니다.
           </p>
           <RegionCodeInput
-            loading={regionMutation.isPending}
+            loading={regionLoading}
             buttonLabel="수집 시작"
-            onSubmit={(code) => {
-              regionMutation.mutate(code, {
-                onSuccess: (res) => {
-                  toast.success(res.message)
-                  setShowRegion(false)
-                  navigate(`/runs/${res.run_id}`)
-                },
-                onError: () => toast.error("지역 수집에 실패했습니다"),
-              })
+            onSubmit={async (codes) => {
+              setRegionLoading(true)
+              let lastRunId: number | null = null
+              try {
+                for (const code of codes) {
+                  const res = await regionMutation.mutateAsync(code)
+                  lastRunId = res.run_id
+                }
+                toast.success(
+                  `${codes.length}개 지역 수집이 시작되었습니다`,
+                )
+                setShowRegion(false)
+                if (lastRunId) navigate(`/runs/${lastRunId}`)
+              } catch {
+                toast.error("지역 수집에 실패했습니다")
+              } finally {
+                setRegionLoading(false)
+              }
             }}
           />
         </DialogContent>

@@ -42,7 +42,7 @@ import { formatRelativeTime } from "@/lib/format"
 import { toast } from "sonner"
 
 interface DiscoverResult {
-  region_code: string
+  region_codes: string[]
   total_found: number
   new_registered: number
   already_exists: number
@@ -56,6 +56,7 @@ export default function ComplexListPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [showDiscover, setShowDiscover] = useState(false)
   const [discoverResult, setDiscoverResult] = useState<DiscoverResult | null>(null)
+  const [discoverLoading, setDiscoverLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const { data: complexes, isLoading } = useComplexes({ limit: 1000 })
@@ -453,7 +454,7 @@ export default function ComplexListPage() {
           {discoverResult ? (
             <div className="space-y-3">
               <p className="text-sm font-medium">
-                {discoverResult.region_code} 지역 발견 완료
+                {discoverResult.region_codes.length}개 지역 발견 완료
               </p>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-lg border p-3">
@@ -501,18 +502,41 @@ export default function ComplexListPage() {
                 자동으로 발견하고 등록합니다.
               </p>
               <RegionCodeInput
-                loading={discoverMutation.isPending}
+                loading={discoverLoading}
                 buttonLabel="발견 시작"
-                onSubmit={(code) => {
-                  discoverMutation.mutate(code, {
-                    onSuccess: (res) => {
-                      setDiscoverResult(res)
-                      toast.success(
-                        `${res.total_found}개 단지 발견, ${res.new_registered}개 신규 등록`,
-                      )
-                    },
-                    onError: () => toast.error("지역 발견에 실패했습니다"),
-                  })
+                onSubmit={async (codes) => {
+                  setDiscoverLoading(true)
+                  let totalFound = 0
+                  let newRegistered = 0
+                  let alreadyExists = 0
+                  let failedCount = 0
+                  for (const code of codes) {
+                    try {
+                      const res = await discoverMutation.mutateAsync(code)
+                      totalFound += res.total_found
+                      newRegistered += res.new_registered
+                      alreadyExists += res.already_exists
+                    } catch {
+                      failedCount++
+                    }
+                  }
+                  setDiscoverLoading(false)
+                  if (totalFound > 0 || failedCount === 0) {
+                    setDiscoverResult({
+                      region_codes: codes,
+                      total_found: totalFound,
+                      new_registered: newRegistered,
+                      already_exists: alreadyExists,
+                    })
+                    const msg = `${totalFound}개 단지 발견, ${newRegistered}개 신규 등록`
+                    if (failedCount > 0) {
+                      toast.warning(`${msg} (${failedCount}개 지역 실패)`)
+                    } else {
+                      toast.success(msg)
+                    }
+                  } else {
+                    toast.error("지역 발견에 실패했습니다")
+                  }
                 }}
               />
             </>
