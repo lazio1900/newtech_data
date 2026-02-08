@@ -1,4 +1,4 @@
-export type JobType = "kb_price" | "kb_listing" | "kb_transaction" | "molit_transaction" | "region_all"
+export type JobType = "kb_price" | "region_all"
 export type JobStatus = "active" | "paused" | "disabled"
 
 export interface CrawlJob {

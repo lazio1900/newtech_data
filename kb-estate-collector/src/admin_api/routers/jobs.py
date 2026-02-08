@@ -9,9 +9,7 @@ import json
 from src.core.database import get_db
 from src.models import CrawlJob, CrawlRun, JobType, JobStatus, RunStatus
 from src.workers.tasks import (
-    run_kb_price_collection,
-    run_transaction_collection,
-    run_listing_collection,
+    run_kb_collection,
     run_region_collection,
 )
 
@@ -124,19 +122,8 @@ def create_and_run_job(
             region_code=region_code, job_id=job.id, run_id=run.id,
         )
     else:
-        task_map = {
-            JobType.KB_PRICE: run_kb_price_collection,
-            JobType.KB_LISTING: run_listing_collection,
-            JobType.KB_TRANSACTION: run_transaction_collection,
-            JobType.MOLIT_TRANSACTION: run_transaction_collection,
-        }
-        task_fn = task_map.get(job.job_type)
-        if not task_fn:
-            raise HTTPException(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                detail=f"Job type {job.job_type} not yet implemented",
-            )
-        task = task_fn.delay(
+        # KB 데이터 통합 수집 (시세 + 실거래 + 매물)
+        task = run_kb_collection.delay(
             job_id=job.id, run_id=run.id, target_config=job.target_config,
         )
 
@@ -187,19 +174,8 @@ def run_job_now(job_id: int, db: Session = Depends(get_db)):
             region_code=region_code, job_id=job.id, run_id=run.id,
         )
     else:
-        task_map = {
-            JobType.KB_PRICE: run_kb_price_collection,
-            JobType.KB_LISTING: run_listing_collection,
-            JobType.KB_TRANSACTION: run_transaction_collection,
-            JobType.MOLIT_TRANSACTION: run_transaction_collection,
-        }
-        task_fn = task_map.get(job.job_type)
-        if not task_fn:
-            raise HTTPException(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                detail=f"Job type {job.job_type} not yet implemented",
-            )
-        task = task_fn.delay(
+        # KB 데이터 통합 수집 (시세 + 실거래 + 매물)
+        task = run_kb_collection.delay(
             job_id=job.id, run_id=run.id, target_config=job.target_config,
         )
 

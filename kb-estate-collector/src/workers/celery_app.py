@@ -24,17 +24,9 @@ celery_app.conf.update(
 
 # Beat schedule for periodic tasks
 celery_app.conf.beat_schedule = {
-    'collect-kb-prices-daily': {
-        'task': 'src.workers.tasks.run_kb_price_collection',
+    'collect-kb-data-daily': {
+        'task': 'src.workers.tasks.run_kb_collection',
         'schedule': 86400.0,  # Daily (24 hours)
-    },
-    'collect-transactions-daily': {
-        'task': 'src.workers.tasks.run_transaction_collection',
-        'schedule': 86400.0,  # Daily
-    },
-    'collect-listings-twice-daily': {
-        'task': 'src.workers.tasks.run_listing_collection',
-        'schedule': 43200.0,  # Every 12 hours
     },
 }
 

@@ -134,6 +134,49 @@ def _get_target_complexes(
     return db.query(Complex).filter(Complex.is_active == True).all()
 
 
+def _finalize_run_if_complete(db: Session, run_id: int):
+    """
+    Run에 속한 모든 태스크가 완료(success/failed/skipped)되었는지 확인하고,
+    모두 끝났으면 Run 상태를 성공/실패/부분성공으로 갱신.
+    """
+    run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
+    if not run or run.status not in (RunStatus.RUNNING,):
+        return
+
+    total = run.total_tasks or 0
+    if total == 0:
+        return
+
+    finished_statuses = {TaskStatus.SUCCESS, TaskStatus.FAILED, TaskStatus.SKIPPED}
+    tasks = db.query(CrawlTask).filter(CrawlTask.run_id == run_id).all()
+    finished = [t for t in tasks if t.status in finished_statuses]
+
+    if len(finished) < total:
+        return  # 아직 진행 중
+
+    success = sum(1 for t in finished if t.status == TaskStatus.SUCCESS)
+    failed = sum(1 for t in finished if t.status == TaskStatus.FAILED)
+    skipped = sum(1 for t in finished if t.status == TaskStatus.SKIPPED)
+
+    run.success_count = success
+    run.failed_count = failed
+    run.skipped_count = skipped
+    run.finished_at = datetime.utcnow()
+
+    if failed == 0:
+        run.status = RunStatus.SUCCESS
+    elif success == 0:
+        run.status = RunStatus.FAILED
+    else:
+        run.status = RunStatus.PARTIAL
+
+    db.commit()
+    logger.info(
+        f"Run {run_id} finalized: {run.status.value} "
+        f"(success={success}, failed={failed}, skipped={skipped})"
+    )
+
+
 class DatabaseTask(Task):
     """Base task with database session management"""
 
@@ -155,7 +198,7 @@ class DatabaseTask(Task):
 # KB 시세 수집
 # =============================================================================
 
-@celery_app.task(base=DatabaseTask, bind=True, max_retries=3)
+@celery_app.task(base=DatabaseTask, bind=True)
 def collect_kb_price_task(
     self,
     run_id: int,
@@ -180,105 +223,63 @@ def collect_kb_price_task(
         result = connector.collect(complex_id=complex_id, area_id=area_id)
 
         for item in result["items"]:
-            kb_price = KBPrice(
-                complex_id=complex_id,
-                area_id=area_id,
-                as_of_date=item["as_of_date"],
-                general_price=item["general_price"],
-                high_avg_price=item["high_avg_price"],
-                low_avg_price=item["low_avg_price"],
-                source=item["source"],
-                fetched_at=datetime.utcnow(),
-                parser_version=item.get("parser_version"),
-            )
-            db.merge(kb_price)
+            existing = db.query(KBPrice).filter(
+                KBPrice.complex_id == complex_id,
+                KBPrice.area_id == area_id,
+                KBPrice.as_of_date == item["as_of_date"],
+            ).first()
+
+            if existing:
+                existing.general_price = item["general_price"]
+                existing.high_avg_price = item["high_avg_price"]
+                existing.low_avg_price = item["low_avg_price"]
+                existing.fetched_at = datetime.utcnow()
+                existing.parser_version = item.get("parser_version")
+            else:
+                db.add(KBPrice(
+                    complex_id=complex_id,
+                    area_id=area_id,
+                    as_of_date=item["as_of_date"],
+                    general_price=item["general_price"],
+                    high_avg_price=item["high_avg_price"],
+                    low_avg_price=item["low_avg_price"],
+                    source=item["source"],
+                    fetched_at=datetime.utcnow(),
+                    parser_version=item.get("parser_version"),
+                ))
 
         db.commit()
-
         task_record.status = TaskStatus.SUCCESS
-        task_record.finished_at = datetime.utcnow()
         task_record.items_collected = len(result["items"])
         task_record.items_saved = len(result["items"])
-        db.commit()
-
         logger.info(f"Task {task_key} completed: {len(result['items'])} items")
         return {"status": "success", "items_collected": len(result["items"])}
 
-    except Exception as e:
+    except BaseException as e:
         logger.exception(f"Task {task_key} failed: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
         task_record.status = TaskStatus.FAILED
-        task_record.finished_at = datetime.utcnow()
         task_record.error_type = type(e).__name__
         task_record.error_message = str(e)[:500]
-        db.commit()
-        raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
+        return {"status": "failed", "error": str(e)}
 
-
-@celery_app.task(base=DatabaseTask, bind=True)
-def run_kb_price_collection(
-    self, job_id: int = None, run_id: int = None, target_config: str = None,
-) -> Dict[str, Any]:
-    """KB 시세 수집 작업 실행. target_config로 특정 단지만 수집 가능."""
-    db = self.db
-
-    if run_id:
-        run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
-        run.status = RunStatus.RUNNING
-        run.started_at = datetime.utcnow()
-    else:
-        run = CrawlRun(
-            job_id=job_id,
-            status=RunStatus.RUNNING,
-            started_at=datetime.utcnow(),
-        )
-        db.add(run)
-    db.commit()
-
-    # target_config가 없으면 job에서 가져오기
-    if not target_config and job_id:
-        job = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
-        if job and job.job_id:
-            from src.models import CrawlJob
-            j = db.query(CrawlJob).filter(CrawlJob.id == job.job_id).first()
-            if j:
-                target_config = j.target_config
-
-    try:
-        complexes = _get_target_complexes(db, target_config)
-
-        tasks = []
-        for complex_obj in complexes:
-            # 면적이 없으면 KB API에서 자동 조회
-            areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
-
-            for area in areas:
-                task = collect_kb_price_task.delay(
-                    run_id=run.id,
-                    complex_id=complex_obj.id,
-                    area_id=area.id,
-                )
-                tasks.append(task)
-
-        db.commit()
-        run.total_tasks = len(tasks)
-        db.commit()
-
-        logger.info(f"Run {run.id}: Launched {len(tasks)} price tasks")
-        return {"run_id": run.id, "total_tasks": len(tasks)}
-
-    except Exception as e:
-        logger.exception(f"Run {run.id} failed: {e}")
-        run.status = RunStatus.FAILED
-        run.finished_at = datetime.utcnow()
-        db.commit()
-        raise
+    finally:
+        task_record.finished_at = datetime.utcnow()
+        try:
+            db.commit()
+        except Exception:
+            pass
+        _finalize_run_if_complete(db, run_id)
 
 
 # =============================================================================
 # KB 실거래가 수집
 # =============================================================================
 
-@celery_app.task(base=DatabaseTask, bind=True, max_retries=3)
+@celery_app.task(base=DatabaseTask, bind=True)
 def collect_kb_transaction_task(
     self,
     run_id: int,
@@ -317,76 +318,37 @@ def collect_kb_transaction_task(
             saved_count += 1
 
         db.commit()
-
         task_record.status = TaskStatus.SUCCESS
-        task_record.finished_at = datetime.utcnow()
         task_record.items_collected = len(result["items"])
         task_record.items_saved = saved_count
-        db.commit()
-
         logger.info(f"Task {task_key} completed: {len(result['items'])} items")
         return {"status": "success", "items_collected": len(result["items"])}
 
-    except Exception as e:
+    except BaseException as e:
         logger.exception(f"Task {task_key} failed: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
         task_record.status = TaskStatus.FAILED
-        task_record.finished_at = datetime.utcnow()
         task_record.error_type = type(e).__name__
         task_record.error_message = str(e)[:500]
-        db.commit()
-        raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
+        return {"status": "failed", "error": str(e)}
 
-
-@celery_app.task(base=DatabaseTask, bind=True)
-def run_transaction_collection(
-    self, job_id: int = None, run_id: int = None, target_config: str = None,
-) -> Dict[str, Any]:
-    """KB 실거래가 수집 작업 실행. target_config로 특정 단지만 수집 가능."""
-    db = self.db
-
-    if run_id:
-        run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
-        run.status = RunStatus.RUNNING
-        run.started_at = datetime.utcnow()
-    else:
-        run = CrawlRun(
-            job_id=job_id,
-            status=RunStatus.RUNNING,
-            started_at=datetime.utcnow(),
-        )
-        db.add(run)
-    db.commit()
-
-    try:
-        complexes = _get_target_complexes(db, target_config)
-
-        tasks = []
-        for complex_obj in complexes:
-            task = collect_kb_transaction_task.delay(
-                run_id=run.id,
-                complex_id=complex_obj.id,
-            )
-            tasks.append(task)
-
-        run.total_tasks = len(tasks)
-        db.commit()
-
-        logger.info(f"Run {run.id}: Launched {len(tasks)} transaction tasks")
-        return {"run_id": run.id, "total_tasks": len(tasks)}
-
-    except Exception as e:
-        logger.exception(f"Run {run.id} failed: {e}")
-        run.status = RunStatus.FAILED
-        run.finished_at = datetime.utcnow()
-        db.commit()
-        raise
+    finally:
+        task_record.finished_at = datetime.utcnow()
+        try:
+            db.commit()
+        except Exception:
+            pass
+        _finalize_run_if_complete(db, run_id)
 
 
 # =============================================================================
 # KB 매물 수집
 # =============================================================================
 
-@celery_app.task(base=DatabaseTask, bind=True, max_retries=3)
+@celery_app.task(base=DatabaseTask, bind=True)
 def collect_kb_listing_task(
     self,
     run_id: int,
@@ -453,31 +415,44 @@ def collect_kb_listing_task(
                 stale.status_updated_at = datetime.utcnow()
 
         db.commit()
-
         task_record.status = TaskStatus.SUCCESS
-        task_record.finished_at = datetime.utcnow()
         task_record.items_collected = len(result["items"])
         task_record.items_saved = saved_count
-        db.commit()
-
         logger.info(f"Task {task_key} completed: {len(result['items'])} items")
         return {"status": "success", "items_collected": len(result["items"])}
 
-    except Exception as e:
+    except BaseException as e:
         logger.exception(f"Task {task_key} failed: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
         task_record.status = TaskStatus.FAILED
-        task_record.finished_at = datetime.utcnow()
         task_record.error_type = type(e).__name__
         task_record.error_message = str(e)[:500]
-        db.commit()
-        raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
+        return {"status": "failed", "error": str(e)}
 
+    finally:
+        task_record.finished_at = datetime.utcnow()
+        try:
+            db.commit()
+        except Exception:
+            pass
+        _finalize_run_if_complete(db, run_id)
+
+
+# =============================================================================
+# KB 통합 수집 (시세 + 실거래 + 매물)
+# =============================================================================
 
 @celery_app.task(base=DatabaseTask, bind=True)
-def run_listing_collection(
+def run_kb_collection(
     self, job_id: int = None, run_id: int = None, target_config: str = None,
 ) -> Dict[str, Any]:
-    """KB 매물 수집 작업 실행. target_config로 특정 단지만 수집 가능."""
+    """
+    KB 데이터 통합 수집.
+    각 단지마다 시세(면적별) + 실거래가 + 매물을 한번에 수집.
+    """
     db = self.db
 
     if run_id:
@@ -493,25 +468,50 @@ def run_listing_collection(
         db.add(run)
     db.commit()
 
+    # target_config가 없으면 job에서 가져오기
+    if not target_config and job_id:
+        from src.models import CrawlJob
+        j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+        if j:
+            target_config = j.target_config
+
     try:
         complexes = _get_target_complexes(db, target_config)
-        # target_config가 없으면 collect_listings=True인 것만
-        if not target_config:
-            complexes = [c for c in complexes if c.collect_listings]
 
-        tasks = []
+        total_tasks = 0
         for complex_obj in complexes:
-            task = collect_kb_listing_task.delay(
+            # 면적이 없으면 KB API에서 자동 조회
+            areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
+
+            # 시세 (면적별)
+            for area in areas:
+                collect_kb_price_task.delay(
+                    run_id=run.id,
+                    complex_id=complex_obj.id,
+                    area_id=area.id,
+                )
+                total_tasks += 1
+
+            # 실거래가
+            collect_kb_transaction_task.delay(
                 run_id=run.id,
                 complex_id=complex_obj.id,
             )
-            tasks.append(task)
+            total_tasks += 1
 
-        run.total_tasks = len(tasks)
+            # 매물
+            collect_kb_listing_task.delay(
+                run_id=run.id,
+                complex_id=complex_obj.id,
+            )
+            total_tasks += 1
+
+        db.commit()
+        run.total_tasks = total_tasks
         db.commit()
 
-        logger.info(f"Run {run.id}: Launched {len(tasks)} listing tasks")
-        return {"run_id": run.id, "total_tasks": len(tasks)}
+        logger.info(f"Run {run.id}: Launched {total_tasks} tasks for {len(complexes)} complexes (price+transaction+listing)")
+        return {"run_id": run.id, "total_tasks": total_tasks, "complexes_count": len(complexes)}
 
     except Exception as e:
         logger.exception(f"Run {run.id} failed: {e}")

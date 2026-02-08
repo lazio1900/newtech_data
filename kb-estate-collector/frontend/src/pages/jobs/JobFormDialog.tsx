@@ -154,7 +154,7 @@ export default function JobFormDialog({
               placeholder={
                 isRegionAll
                   ? "비워두면 지역명으로 자동 생성"
-                  : `예) 서초구 ${JOB_TYPE_LABELS[form.job_type]} 수집`
+                  : "예) 서초구 아파트 수집"
               }
             />
           </div>
