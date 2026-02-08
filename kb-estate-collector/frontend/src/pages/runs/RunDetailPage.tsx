@@ -1,6 +1,6 @@
 import { useState } from "react"
-import { useParams, useNavigate } from "react-router-dom"
-import { ArrowLeft } from "lucide-react"
+import { useParams, useNavigate, Link } from "react-router-dom"
+import { ArrowLeft, MapPin, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -15,9 +15,14 @@ import PageHeader from "@/components/layout/PageHeader"
 import StatusBadge from "@/components/shared/StatusBadge"
 import EmptyState from "@/components/shared/EmptyState"
 import { useRun, useRunTasks } from "@/hooks/useRuns"
-import { RUN_STATUS_LABELS, TASK_STATUS_LABELS } from "@/lib/constants"
+import {
+  RUN_STATUS_LABELS,
+  TASK_STATUS_LABELS,
+  COMMON_REGIONS,
+  SIDO_REGIONS,
+} from "@/lib/constants"
 import { formatDateTime, formatDuration } from "@/lib/format"
-import type { TaskStatus } from "@/types/run"
+import type { TaskStatus, TargetComplex } from "@/types/run"
 
 const TASK_FILTERS: { label: string; value: string | undefined }[] = [
   { label: "전체", value: undefined },
@@ -59,7 +64,8 @@ export default function RunDetailPage() {
         }
       />
 
-      <div className="mb-6 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+      {/* 요약 정보 */}
+      <div className="mb-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-md border p-3">
           <span className="text-muted-foreground">상태</span>
           <div className="mt-1">
@@ -70,10 +76,12 @@ export default function RunDetailPage() {
           </div>
         </div>
         <div className="rounded-md border p-3">
-          <span className="text-muted-foreground">시작 / 종료</span>
-          <p className="mt-1 font-medium">
-            {formatDateTime(run.started_at)} ~ {formatDateTime(run.finished_at)}
-          </p>
+          <span className="text-muted-foreground">시작</span>
+          <p className="mt-1 font-medium">{formatDateTime(run.started_at)}</p>
+        </div>
+        <div className="rounded-md border p-3">
+          <span className="text-muted-foreground">완료</span>
+          <p className="mt-1 font-medium">{formatDateTime(run.finished_at)}</p>
         </div>
         <div className="rounded-md border p-3">
           <span className="text-muted-foreground">소요 시간</span>
@@ -81,6 +89,9 @@ export default function RunDetailPage() {
             {formatDuration(run.started_at, run.finished_at)}
           </p>
         </div>
+      </div>
+
+      <div className="mb-6 grid gap-2 text-sm sm:grid-cols-2">
         <div className="rounded-md border p-3">
           <span className="text-muted-foreground">태스크</span>
           <p className="mt-1 font-medium">
@@ -89,6 +100,39 @@ export default function RunDetailPage() {
             <span className="text-red-600">{run.failed_count}</span> / 스킵{" "}
             {run.skipped_count}
           </p>
+        </div>
+        <div className="rounded-md border p-3">
+          <span className="text-muted-foreground">수집 대상</span>
+          <div className="mt-1">
+            {run.target_complexes && run.target_complexes.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {run.target_complexes.map((c: TargetComplex) => {
+                  const regionName = c.region_code
+                    ? COMMON_REGIONS[c.region_code.slice(0, 5)] ||
+                      SIDO_REGIONS[c.region_code.slice(0, 2)] ||
+                      ""
+                    : ""
+                  return (
+                    <Link
+                      key={c.id}
+                      to={`/complexes/${c.id}`}
+                      className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
+                    >
+                      <Building2 className="h-3 w-3 text-muted-foreground" />
+                      <span className="font-medium">{c.name}</span>
+                      {regionName && (
+                        <span className="text-muted-foreground">
+                          ({regionName})
+                        </span>
+                      )}
+                    </Link>
+                  )
+                })}
+              </div>
+            ) : (
+              <span className="text-muted-foreground">-</span>
+            )}
+          </div>
         </div>
       </div>
 

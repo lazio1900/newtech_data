@@ -63,6 +63,17 @@ export function useCollectComplex() {
   })
 }
 
+export function useBatchCollectComplexes() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (complexIds: number[]) => complexesApi.batchCollect(complexIds),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["runs"] })
+      qc.invalidateQueries({ queryKey: ["complexLastRuns"] })
+    },
+  })
+}
+
 export function useComplexLastRuns() {
   return useQuery({
     queryKey: ["complexLastRuns"],

@@ -35,6 +35,7 @@ export default function RunListPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>ID</TableHead>
+                  <TableHead>대상</TableHead>
                   <TableHead>상태</TableHead>
                   <TableHead>시작 시간</TableHead>
                   <TableHead>소요 시간</TableHead>
@@ -53,6 +54,11 @@ export default function RunListPage() {
                       >
                         #{run.id}
                       </Link>
+                    </TableCell>
+                    <TableCell className="max-w-[200px] truncate text-sm">
+                      {run.target_summary || (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <StatusBadge

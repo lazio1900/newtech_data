@@ -12,6 +12,7 @@ export interface CrawlRun {
   failed_count: number
   skipped_count: number
   created_at: string
+  target_summary?: string
 }
 
 export interface CrawlTask {
@@ -27,6 +28,14 @@ export interface CrawlTask {
   error_message: string | null
 }
 
+export interface TargetComplex {
+  id: number
+  name: string
+  address: string
+  region_code: string | null
+}
+
 export interface CrawlRunDetail extends CrawlRun {
   tasks: CrawlTask[]
+  target_complexes: TargetComplex[]
 }

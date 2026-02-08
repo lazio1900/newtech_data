@@ -36,6 +36,14 @@ export const complexesApi = {
       )
       .then((r) => r.data),
 
+  batchCollect: (complexIds: number[]) =>
+    apiClient
+      .post<{ message: string; run_id: number; task_id: string; count: number }>(
+        "/api/complexes/batch-collect",
+        { complex_ids: complexIds },
+      )
+      .then((r) => r.data),
+
   getLastRuns: () =>
     apiClient
       .get<ComplexLastRunMap>("/api/complexes/last-runs")

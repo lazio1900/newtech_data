@@ -62,7 +62,7 @@ def list_complexes(
     if is_active is not None:
         query = query.filter(Complex.is_active == is_active)
     
-    complexes = query.offset(skip).limit(limit).all()
+    complexes = query.order_by(Complex.name).offset(skip).limit(limit).all()
     return complexes
 
 
@@ -165,6 +165,57 @@ def collect_complex(complex_id: int, db: Session = Depends(get_db)):
         "message": f"{complex_obj.name} 수집이 시작되었습니다",
         "run_id": run.id,
         "task_id": task.id,
+    }
+
+
+class BatchCollectSchema(BaseModel):
+    complex_ids: List[int]
+
+
+@router.post("/batch-collect", status_code=status.HTTP_202_ACCEPTED)
+def batch_collect_complexes(
+    body: BatchCollectSchema,
+    db: Session = Depends(get_db),
+):
+    """여러 단지 일괄 수집"""
+    if not body.complex_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="complex_ids is empty",
+        )
+
+    complexes = (
+        db.query(Complex)
+        .filter(Complex.id.in_(body.complex_ids))
+        .all()
+    )
+    if not complexes:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No complexes found",
+        )
+
+    from src.workers.tasks import run_kb_collection
+
+    run = CrawlRun(
+        job_id=None,
+        status=RunStatus.PENDING,
+        started_at=datetime.utcnow(),
+    )
+    db.add(run)
+    db.commit()
+
+    import json
+    target_config = json.dumps({"complex_ids": body.complex_ids})
+    task = run_kb_collection.delay(
+        job_id=None, run_id=run.id, target_config=target_config,
+    )
+
+    return {
+        "message": f"{len(complexes)}개 단지 수집이 시작되었습니다",
+        "run_id": run.id,
+        "task_id": task.id,
+        "count": len(complexes),
     }
 
 

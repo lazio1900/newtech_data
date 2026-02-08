@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Plus, Search, MapPin, Play } from "lucide-react"
+import { Plus, Search, MapPin, Play, Loader2 } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -28,11 +29,13 @@ import {
   useCreateComplex,
   useDiscoverRegion,
   useCollectComplex,
+  useBatchCollectComplexes,
   useComplexLastRuns,
 } from "@/hooks/useComplexes"
 import {
   PRIORITY_LABELS,
   RUN_STATUS_LABELS,
+  SIDO_REGIONS,
   COMMON_REGIONS,
 } from "@/lib/constants"
 import { formatRelativeTime } from "@/lib/format"
@@ -48,28 +51,46 @@ interface DiscoverResult {
 export default function ComplexListPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState("")
+  const [selectedSido, setSelectedSido] = useState<string | null>(null)
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [showDiscover, setShowDiscover] = useState(false)
   const [discoverResult, setDiscoverResult] = useState<DiscoverResult | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const { data: complexes, isLoading } = useComplexes({ limit: 1000 })
   const createMutation = useCreateComplex()
   const discoverMutation = useDiscoverRegion()
   const collectMutation = useCollectComplex()
+  const batchCollectMutation = useBatchCollectComplexes()
   const { data: lastRuns } = useComplexLastRuns()
 
-  // 지역별 단지 수 계산
-  const regionCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
+  // 시/도별, 시/군/구별 단지 수 계산
+  const { sidoCounts, regionCounts } = useMemo(() => {
+    const sido: Record<string, number> = {}
+    const region: Record<string, number> = {}
     for (const c of complexes ?? []) {
       if (c.region_code) {
-        const key = c.region_code.slice(0, 5)
-        counts[key] = (counts[key] || 0) + 1
+        const sidoKey = c.region_code.slice(0, 2)
+        sido[sidoKey] = (sido[sidoKey] || 0) + 1
+        const regionKey = c.region_code.slice(0, 5)
+        region[regionKey] = (region[regionKey] || 0) + 1
       }
     }
-    return counts
+    return { sidoCounts: sido, regionCounts: region }
   }, [complexes])
+
+  // 선택된 시/도에 해당하는 시/군/구 목록
+  const filteredRegions = useMemo(() => {
+    if (!selectedSido) return {}
+    const result: Record<string, string> = {}
+    for (const [code, name] of Object.entries(COMMON_REGIONS)) {
+      if (code.startsWith(selectedSido)) {
+        result[code] = name
+      }
+    }
+    return result
+  }, [selectedSido])
 
   // 필터링된 단지 목록
   const filtered = useMemo(() => {
@@ -79,6 +100,10 @@ export default function ComplexListPage() {
     if (selectedRegion) {
       list = list.filter(
         (c) => c.region_code && c.region_code.startsWith(selectedRegion),
+      )
+    } else if (selectedSido) {
+      list = list.filter(
+        (c) => c.region_code && c.region_code.startsWith(selectedSido),
       )
     }
 
@@ -94,7 +119,27 @@ export default function ComplexListPage() {
     }
 
     return list
-  }, [complexes, selectedRegion, search])
+  }, [complexes, selectedSido, selectedRegion, search])
+
+  const allSelected =
+    filtered.length > 0 && filtered.every((c) => selectedIds.has(c.id))
+
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filtered.map((c) => c.id)))
+    }
+  }
+
+  const toggleOne = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   return (
     <div>
@@ -133,14 +178,17 @@ export default function ComplexListPage() {
             />
           </div>
 
-          {/* 지역 버튼 */}
+          {/* 시/도 선택 */}
           <div>
             <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
               <MapPin className="h-3 w-3" />
-              <span>지역 선택</span>
-              {selectedRegion && (
+              <span>시/도</span>
+              {(selectedSido || selectedRegion) && (
                 <button
-                  onClick={() => setSelectedRegion(null)}
+                  onClick={() => {
+                    setSelectedSido(null)
+                    setSelectedRegion(null)
+                  }}
                   className="ml-1 rounded px-1.5 py-0.5 text-xs hover:bg-accent"
                 >
                   전체 보기
@@ -148,15 +196,16 @@ export default function ComplexListPage() {
               )}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {Object.entries(COMMON_REGIONS).map(([code, name]) => {
-                const count = regionCounts[code] || 0
-                const isActive = selectedRegion === code
+              {Object.entries(SIDO_REGIONS).map(([code, name]) => {
+                const count = sidoCounts[code] || 0
+                const isActive = selectedSido === code
                 return (
                   <button
                     key={code}
-                    onClick={() =>
-                      setSelectedRegion(isActive ? null : code)
-                    }
+                    onClick={() => {
+                      setSelectedSido(isActive ? null : code)
+                      setSelectedRegion(null)
+                    }}
                     className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
                       isActive
                         ? "border-primary bg-primary text-primary-foreground"
@@ -182,6 +231,49 @@ export default function ComplexListPage() {
               })}
             </div>
           </div>
+
+          {/* 시/군/구 선택 (시/도 선택 후) */}
+          {selectedSido && Object.keys(filteredRegions).length > 0 && (
+            <div>
+              <div className="mb-1.5 text-xs text-muted-foreground">
+                시/군/구
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(filteredRegions).map(([code, name]) => {
+                  const count = regionCounts[code] || 0
+                  const isActive = selectedRegion === code
+                  return (
+                    <button
+                      key={code}
+                      onClick={() =>
+                        setSelectedRegion(isActive ? null : code)
+                      }
+                      className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                        isActive
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : count > 0
+                            ? "hover:bg-accent"
+                            : "text-muted-foreground/50 opacity-60"
+                      }`}
+                    >
+                      {name}
+                      {count > 0 && (
+                        <span
+                          className={`ml-1 ${
+                            isActive
+                              ? "text-primary-foreground/70"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -196,12 +288,52 @@ export default function ComplexListPage() {
             <EmptyState message="해당하는 단지가 없습니다" />
           ) : (
             <>
-              <div className="mb-3 text-xs text-muted-foreground">
-                {filtered.length}개 단지
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  {filtered.length}개 단지
+                  {selectedIds.size > 0 && (
+                    <span className="ml-1.5 font-medium text-primary">
+                      ({selectedIds.size}개 선택)
+                    </span>
+                  )}
+                </span>
+                {selectedIds.size > 0 && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const ids = Array.from(selectedIds)
+                      batchCollectMutation.mutate(ids, {
+                        onSuccess: (res) => {
+                          toast.success(
+                            `${res.count}개 단지 수집이 시작되었습니다`,
+                          )
+                          setSelectedIds(new Set())
+                          navigate(`/runs/${res.run_id}`)
+                        },
+                        onError: () =>
+                          toast.error("수집 시작에 실패했습니다"),
+                      })
+                    }}
+                    disabled={batchCollectMutation.isPending}
+                  >
+                    {batchCollectMutation.isPending ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Play className="mr-1.5 h-4 w-4" />
+                    )}
+                    크롤링 실행 ({selectedIds.size})
+                  </Button>
+                )}
               </div>
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={allSelected}
+                        onCheckedChange={toggleAll}
+                      />
+                    </TableHead>
                     <TableHead>이름</TableHead>
                     <TableHead>주소</TableHead>
                     <TableHead>우선순위</TableHead>
@@ -215,6 +347,12 @@ export default function ComplexListPage() {
                     const lastRun = lastRuns?.[c.id]
                     return (
                       <TableRow key={c.id} className="cursor-pointer hover:bg-accent">
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedIds.has(c.id)}
+                            onCheckedChange={() => toggleOne(c.id)}
+                          />
+                        </TableCell>
                         <TableCell>
                           <Link
                             to={`/complexes/${c.id}`}
