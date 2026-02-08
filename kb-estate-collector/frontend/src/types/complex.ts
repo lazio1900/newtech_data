@@ -1,0 +1,31 @@
+export type PriorityLevel = "HIGH" | "NORMAL" | "LOW"
+
+export interface Area {
+  id: number
+  exclusive_m2: number
+  supply_m2: number | null
+  pyeong: number | null
+  kb_area_code: string | null
+}
+
+export interface Complex {
+  id: number
+  name: string
+  address: string
+  region_code: string | null
+  kb_complex_id: string | null
+  priority: PriorityLevel
+  is_active: boolean
+  collect_listings: boolean
+  areas: Area[]
+}
+
+export interface ComplexCreate {
+  name: string
+  address: string
+  region_code?: string
+  kb_complex_id?: string
+  priority?: PriorityLevel
+  is_active?: boolean
+  collect_listings?: boolean
+}
