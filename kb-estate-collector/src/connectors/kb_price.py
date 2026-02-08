@@ -1,65 +1,153 @@
-from typing import Any, Dict, List
-from datetime import date, datetime
+"""
+KB 시세 데이터 수집 커넥터.
+
+KB부동산에서 아파트 단지별 시세(일반가/상위평균가/하위평균가)를 수집합니다.
+"""
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import logging
-from src.connectors.base import BaseConnector
+
+from src.connectors.kb_base import KBBaseConnector
+from src.connectors.kb_endpoints import KBEndpoint, COMPLEX_PRICE
+from src.connectors.base import ParserError
 
 logger = logging.getLogger(__name__)
 
 
-class KBPriceConnector(BaseConnector):
+class KBPriceConnector(KBBaseConnector):
     """
-    KB 시세 데이터 수집 커넥터
-    
-    주의: 이것은 MOCK 구현입니다.
-    실제 KB 사이트 접근은 법적 권한 확보 후 구현해야 합니다.
+    KB 시세 커넥터.
+
+    수집 데이터: 일반가, 상위평균가(상한가), 하위평균가(하한가)
+    단위: 만원 → 원으로 변환하여 저장
     """
 
-    def __init__(self, rate_limit_per_minute: int = 30):
+    def __init__(self, db_session=None, rate_limit_per_minute: int = 20):
         super().__init__(
             name="KBPriceConnector",
             rate_limit_per_minute=rate_limit_per_minute,
+            db_session=db_session,
         )
 
-    def fetch(self, complex_id: int, area_id: int, **kwargs) -> Dict[str, Any]:
-        """
-        MOCK: KB 시세 데이터 가져오기
-        
-        실제 구현 시:
-        - 공식 API 사용 또는
-        - 제휴 계약된 데이터 소스 활용
-        - robots.txt 및 이용약관 준수
-        """
-        logger.warning(
-            f"MOCK fetch for complex_id={complex_id}, area_id={area_id}. "
-            "Real implementation required."
-        )
-        
-        # Mock data
-        mock_data = {
-            "complex_id": complex_id,
-            "area_id": area_id,
-            "as_of_date": date.today().isoformat(),
-            "general_price": 500000000,
-            "high_avg_price": 520000000,
-            "low_avg_price": 480000000,
+    def _build_http_params(self, **kwargs) -> Tuple[KBEndpoint, dict]:
+        """시세 API 직접 호출용 파라미터 빌드"""
+        complex_id = kwargs["complex_id"]
+        area_id = kwargs["area_id"]
+        kb_complex_id, kb_area_code = self._resolve_kb_ids(complex_id, area_id)
+
+        params = {
+            "단지기본일련번호": kb_complex_id,
+            "면적일련번호": kb_area_code,
         }
-        
-        return {
-            "data": mock_data,
-            "metadata": {
-                "source": "kb_mock",
-                "fetched_at": datetime.utcnow().isoformat(),
-            }
-        }
+        return (COMPLEX_PRICE, params)
+
+    def _build_browser_config(self, **kwargs) -> Tuple[str, str, Optional[Callable]]:
+        """시세 브라우저 폴백 설정"""
+        complex_id = kwargs["complex_id"]
+        kb_complex_id = self._resolve_kb_complex_id(complex_id)
+
+        page_url = f"https://kbland.kr/map?complexNo={kb_complex_id}"
+        # API 응답 URL에서 price 관련 패턴 매칭
+        api_pattern = "price"
+
+        async def interact(page):
+            """시세 탭 클릭"""
+            tab_selectors = [
+                'text="시세"',
+                'text="KB시세"',
+                '[data-tab="price"]',
+                'button:has-text("시세")',
+            ]
+            for selector in tab_selectors:
+                try:
+                    el = page.locator(selector).first
+                    if await el.is_visible(timeout=2000):
+                        await el.click()
+                        await page.wait_for_timeout(2000)
+                        return
+                except Exception:
+                    continue
+
+        return (page_url, api_pattern, interact)
 
     def parse(self, raw_data: Any) -> List[Dict[str, Any]]:
-        """Parse KB 시세 데이터"""
-        # 간단한 변환 (이미 정규화된 형식)
-        return [{
-            "as_of_date": raw_data["as_of_date"],
-            "general_price": raw_data["general_price"],
-            "high_avg_price": raw_data["high_avg_price"],
-            "low_avg_price": raw_data["low_avg_price"],
-            "source": "kb",
-            "parser_version": "1.0",
-        }]
+        """
+        KB 시세 응답 파싱.
+
+        실제 응답 구조 (2026-02-08 검증 완료):
+        {
+            "dataBody": {
+                "data": {
+                    "시세": [{
+                        "매매일반거래가": 50500,      # 일반가 (만원)
+                        "매매상한가": 52500,           # 상한가 (만원)
+                        "매매하한가": 48500,           # 하한가 (만원)
+                        "시세기준년월일": "20260206",  # 기준일
+                        "매매거래금액": 50500,         # 거래금액 (만원)
+                        "면적일련번호": 127753,
+                        "단지기본일련번호": 12,
+                    }]
+                }
+            }
+        }
+        """
+        try:
+            data = raw_data
+            if isinstance(data, dict):
+                data = data.get("dataBody", data)
+                if isinstance(data, dict):
+                    data = data.get("data", data)
+
+            # 시세 리스트 추출
+            sise_list = []
+            if isinstance(data, dict):
+                sise_list = data.get("시세", [])
+                if not sise_list:
+                    # 폴백: 데이터 자체가 시세 정보인 경우
+                    sise_list = [data]
+            elif isinstance(data, list):
+                sise_list = data
+
+            if not sise_list:
+                return []
+
+            price_info = sise_list[0] if isinstance(sise_list, list) else {}
+
+            # 날짜 추출
+            as_of_date = None
+            for date_key in ["시세기준년월일", "baseDate", "as_of_date", "stdDate"]:
+                if date_key in price_info and price_info[date_key]:
+                    as_of_date = self._parse_date(str(price_info[date_key]))
+                    break
+            if as_of_date is None:
+                from datetime import date
+                as_of_date = date.today().isoformat()
+
+            # 가격 추출 (만원 → 원 변환)
+            general_price = self._extract_price(
+                price_info, ["매매일반거래가", "매매거래금액", "dealAmt", "general_price"]
+            )
+            high_price = self._extract_price(
+                price_info, ["매매상한가", "dealAmtUpper", "high_avg_price"]
+            )
+            low_price = self._extract_price(
+                price_info, ["매매하한가", "dealAmtLower", "low_avg_price"]
+            )
+
+            return [{
+                "as_of_date": as_of_date,
+                "general_price": general_price,
+                "high_avg_price": high_price,
+                "low_avg_price": low_price,
+                "source": "kb",
+                "parser_version": "2.1",
+            }]
+
+        except Exception as e:
+            raise ParserError(f"Failed to parse KB price data: {e}")
+
+    def _extract_price(self, data: dict, candidate_keys: List[str]) -> Optional[int]:
+        """여러 후보 키에서 가격 추출 후 만원→원 변환"""
+        for key in candidate_keys:
+            if key in data and data[key] is not None:
+                return self._to_won(data[key])
+        return None

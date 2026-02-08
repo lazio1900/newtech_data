@@ -38,7 +38,13 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     default_rate_limit_per_minute: int = 60
-    kb_rate_limit_per_minute: int = 30
+    kb_rate_limit_per_minute: int = 20
+
+    # Browser / Crawling
+    browser_headless: bool = True
+    browser_timeout_ms: int = 30000
+    min_request_delay: float = 2.0
+    max_request_delay: float = 5.0
 
     # Notification
     slack_webhook_url: Optional[str] = None

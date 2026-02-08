@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:wooiljeong.github.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:dataapi.co.kr)",
+      "Bash(dir:*)",
+      "Bash(python -c:*)",
+      "Bash(python:*)"
+    ]
+  }
+}

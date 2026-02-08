@@ -9,6 +9,7 @@ class JobType(str, enum.Enum):
     """수집 작업 유형"""
     KB_PRICE = "kb_price"
     KB_LISTING = "kb_listing"
+    KB_TRANSACTION = "kb_transaction"
     MOLIT_TRANSACTION = "molit_transaction"
 
 

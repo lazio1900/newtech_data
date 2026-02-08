@@ -6,7 +6,12 @@ from datetime import datetime
 
 from src.core.database import get_db
 from src.models import CrawlJob, JobType, JobStatus
-from src.workers.tasks import run_kb_price_collection
+from src.workers.tasks import (
+    run_kb_price_collection,
+    run_transaction_collection,
+    run_listing_collection,
+    run_region_collection,
+)
 
 router = APIRouter()
 
@@ -101,14 +106,22 @@ def run_job_now(job_id: int, db: Session = Depends(get_db)):
         )
     
     # Trigger appropriate task based on job type
-    if job.job_type == JobType.KB_PRICE:
-        task = run_kb_price_collection.delay(job_id=job.id)
-    else:
+    task_map = {
+        JobType.KB_PRICE: run_kb_price_collection,
+        JobType.KB_LISTING: run_listing_collection,
+        JobType.KB_TRANSACTION: run_transaction_collection,
+        JobType.MOLIT_TRANSACTION: run_transaction_collection,
+    }
+
+    task_fn = task_map.get(job.job_type)
+    if not task_fn:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail=f"Job type {job.job_type} not yet implemented"
         )
-    
+
+    task = task_fn.delay(job_id=job.id)
+
     return {
         "message": "Job execution started",
         "job_id": job.id,
@@ -146,5 +159,24 @@ def resume_job(job_id: int, db: Session = Depends(get_db)):
     
     job.status = JobStatus.ACTIVE
     db.commit()
-    
+
     return {"message": "Job resumed", "job_id": job.id}
+
+
+@router.post("/run-region", status_code=status.HTTP_202_ACCEPTED)
+def run_region_collection_endpoint(
+    region_code: str,
+    job_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    지역 기반 전체 수집 (발견 + 시세 + 실거래가 + 매물).
+
+    - region_code: 법정동코드 (5자리 시군구 또는 10자리)
+    - job_id: 연결할 CrawlJob ID (선택)
+    """
+    task = run_region_collection.delay(region_code=region_code, job_id=job_id)
+    return {
+        "message": f"Region collection started for {region_code}",
+        "task_id": task.id,
+    }

@@ -33,6 +33,21 @@ class RateLimitError(ConnectorError):
     pass
 
 
+class BrowserError(ConnectorError):
+    """Browser automation errors (retryable)"""
+    pass
+
+
+class PageLoadError(BrowserError):
+    """Page failed to load within timeout"""
+    pass
+
+
+class ElementNotFoundError(BrowserError):
+    """Expected page element not found (site may have changed)"""
+    pass
+
+
 class BaseConnector(ABC):
     """
     Base class for all data connectors
@@ -127,7 +142,7 @@ class BaseConnector(ABC):
                     'raw': raw_result.get('data'),
                 }
             
-            except (NetworkError, RateLimitError) as e:
+            except (NetworkError, RateLimitError, BrowserError) as e:
                 logger.warning(f"{self.name}: Retryable error on attempt {attempt + 1}: {e}")
                 if attempt < self.max_retries - 1:
                     delay = self._exponential_backoff(attempt)

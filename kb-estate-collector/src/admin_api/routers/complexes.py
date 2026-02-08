@@ -129,5 +129,26 @@ def delete_complex(complex_id: int, db: Session = Depends(get_db)):
     
     db.delete(complex)
     db.commit()
-    
+
     return None
+
+
+@router.post("/discover-region", status_code=status.HTTP_202_ACCEPTED)
+def discover_region(
+    region_code: str,
+    db: Session = Depends(get_db),
+):
+    """
+    지역코드로 아파트 단지 자동 발견 및 등록.
+
+    비동기 태스크로 실행되며, 즉시 task_id를 반환합니다.
+
+    - region_code: 법정동코드 (5자리 시군구 또는 10자리 법정동)
+    - 예: "11680" (강남구), "1168010100" (역삼동)
+    """
+    from src.workers.tasks import discover_complexes_task
+    task = discover_complexes_task.delay(region_code=region_code)
+    return {
+        "message": f"Discovery started for region {region_code}",
+        "task_id": task.id,
+    }
