@@ -38,3 +38,13 @@ export interface ComplexLastRun {
 }
 
 export type ComplexLastRunMap = Record<number, ComplexLastRun>
+
+export interface PaginatedComplexes {
+  items: Complex[]
+  total: number
+}
+
+export interface RegionCounts {
+  sido_counts: Record<string, number>
+  region_counts: Record<string, number>
+}

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { Plus, Search, MapPin, Play, Loader2 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -22,10 +22,12 @@ import {
 import PageHeader from "@/components/layout/PageHeader"
 import StatusBadge from "@/components/shared/StatusBadge"
 import EmptyState from "@/components/shared/EmptyState"
+import Pagination from "@/components/shared/Pagination"
 import RegionCodeInput from "@/components/shared/RegionCodeInput"
 import ComplexFormDialog from "./ComplexFormDialog"
 import {
   useComplexes,
+  useRegionCounts,
   useCreateComplex,
   useDiscoverRegion,
   useCollectComplex,
@@ -50,7 +52,8 @@ interface DiscoverResult {
 
 export default function ComplexListPage() {
   const navigate = useNavigate()
-  const [search, setSearch] = useState("")
+  const [searchInput, setSearchInput] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
   const [selectedSido, setSelectedSido] = useState<string | null>(null)
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -58,28 +61,40 @@ export default function ComplexListPage() {
   const [discoverResult, setDiscoverResult] = useState<DiscoverResult | null>(null)
   const [discoverLoading, setDiscoverLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
-  const { data: complexes, isLoading } = useComplexes({ limit: 1000 })
+  // 검색어 디바운스 (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput)
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // 서버 사이드 페이지네이션
+  const regionCode = selectedRegion || selectedSido || undefined
+  const { data, isLoading } = useComplexes({
+    skip: (page - 1) * pageSize,
+    limit: pageSize,
+    search: debouncedSearch || undefined,
+    region_code: regionCode,
+  })
+
+  const complexes = data?.items ?? []
+  const total = data?.total ?? 0
+
+  // 시/도별 단지 수 (별도 경량 쿼리)
+  const { data: counts } = useRegionCounts()
+  const sidoCounts = counts?.sido_counts ?? {}
+  const regionCounts = counts?.region_counts ?? {}
+
   const createMutation = useCreateComplex()
   const discoverMutation = useDiscoverRegion()
   const collectMutation = useCollectComplex()
   const batchCollectMutation = useBatchCollectComplexes()
   const { data: lastRuns } = useComplexLastRuns()
-
-  // 시/도별, 시/군/구별 단지 수 계산
-  const { sidoCounts, regionCounts } = useMemo(() => {
-    const sido: Record<string, number> = {}
-    const region: Record<string, number> = {}
-    for (const c of complexes ?? []) {
-      if (c.region_code) {
-        const sidoKey = c.region_code.slice(0, 2)
-        sido[sidoKey] = (sido[sidoKey] || 0) + 1
-        const regionKey = c.region_code.slice(0, 5)
-        region[regionKey] = (region[regionKey] || 0) + 1
-      }
-    }
-    return { sidoCounts: sido, regionCounts: region }
-  }, [complexes])
 
   // 선택된 시/도에 해당하는 시/군/구 목록
   const filteredRegions = useMemo(() => {
@@ -93,43 +108,23 @@ export default function ComplexListPage() {
     return result
   }, [selectedSido])
 
-  // 필터링된 단지 목록
-  const filtered = useMemo(() => {
-    if (!complexes) return []
-    let list = complexes
-
-    if (selectedRegion) {
-      list = list.filter(
-        (c) => c.region_code && c.region_code.startsWith(selectedRegion),
-      )
-    } else if (selectedSido) {
-      list = list.filter(
-        (c) => c.region_code && c.region_code.startsWith(selectedSido),
-      )
-    }
-
-    if (search.trim()) {
-      const q = search.trim().toLowerCase()
-      list = list.filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          c.address.toLowerCase().includes(q) ||
-          c.kb_complex_id?.includes(q) ||
-          c.region_code?.includes(q),
-      )
-    }
-
-    return list
-  }, [complexes, selectedSido, selectedRegion, search])
-
+  // 현재 페이지 전체 선택
   const allSelected =
-    filtered.length > 0 && filtered.every((c) => selectedIds.has(c.id))
+    complexes.length > 0 && complexes.every((c) => selectedIds.has(c.id))
 
   const toggleAll = () => {
     if (allSelected) {
-      setSelectedIds(new Set())
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        for (const c of complexes) next.delete(c.id)
+        return next
+      })
     } else {
-      setSelectedIds(new Set(filtered.map((c) => c.id)))
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        for (const c of complexes) next.add(c.id)
+        return next
+      })
     }
   }
 
@@ -173,8 +168,8 @@ export default function ComplexListPage() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="단지명, 주소, 지역코드로 검색..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-9"
             />
           </div>
@@ -189,6 +184,7 @@ export default function ComplexListPage() {
                   onClick={() => {
                     setSelectedSido(null)
                     setSelectedRegion(null)
+                    setPage(1)
                   }}
                   className="ml-1 rounded px-1.5 py-0.5 text-xs hover:bg-accent"
                 >
@@ -206,6 +202,7 @@ export default function ComplexListPage() {
                     onClick={() => {
                       setSelectedSido(isActive ? null : code)
                       setSelectedRegion(null)
+                      setPage(1)
                     }}
                     className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
                       isActive
@@ -246,9 +243,10 @@ export default function ComplexListPage() {
                   return (
                     <button
                       key={code}
-                      onClick={() =>
+                      onClick={() => {
                         setSelectedRegion(isActive ? null : code)
-                      }
+                        setPage(1)
+                      }}
                       className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
                         isActive
                           ? "border-primary bg-primary text-primary-foreground"
@@ -285,13 +283,13 @@ export default function ComplexListPage() {
             <p className="py-8 text-center text-sm text-muted-foreground">
               로딩중...
             </p>
-          ) : filtered.length === 0 ? (
+          ) : total === 0 ? (
             <EmptyState message="해당하는 단지가 없습니다" />
           ) : (
             <>
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">
-                  {filtered.length}개 단지
+                  {total}개 단지
                   {selectedIds.size > 0 && (
                     <span className="ml-1.5 font-medium text-primary">
                       ({selectedIds.size}개 선택)
@@ -344,7 +342,7 @@ export default function ComplexListPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((c) => {
+                  {complexes.map((c) => {
                     const lastRun = lastRuns?.[c.id]
                     return (
                       <TableRow key={c.id} className="cursor-pointer hover:bg-accent">
@@ -419,6 +417,13 @@ export default function ComplexListPage() {
                   })}
                 </TableBody>
               </Table>
+              <Pagination
+                total={total}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+              />
             </>
           )}
         </CardContent>

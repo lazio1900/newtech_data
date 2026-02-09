@@ -49,21 +49,98 @@ class ComplexSchema(BaseModel):
         from_attributes = True
 
 
-@router.get("/", response_model=List[ComplexSchema])
+class PaginatedComplexResponse(BaseModel):
+    items: List[ComplexSchema]
+    total: int
+
+
+@router.get("/", response_model=PaginatedComplexResponse)
 def list_complexes(
     skip: int = 0,
     limit: int = 100,
     is_active: Optional[bool] = None,
+    search: Optional[str] = None,
+    region_code: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    """단지 목록 조회"""
+    """단지 목록 조회 (서버 사이드 페이지네이션)"""
     query = db.query(Complex)
-    
+
     if is_active is not None:
         query = query.filter(Complex.is_active == is_active)
-    
-    complexes = query.order_by(Complex.name).offset(skip).limit(limit).all()
-    return complexes
+
+    if region_code:
+        query = query.filter(Complex.region_code.like(f"{region_code}%"))
+
+    if search:
+        q = f"%{search}%"
+        query = query.filter(
+            (Complex.name.ilike(q))
+            | (Complex.address.ilike(q))
+            | (Complex.kb_complex_id.ilike(q))
+            | (Complex.region_code.ilike(q))
+        )
+
+    total = query.count()
+    items = query.order_by(Complex.name).offset(skip).limit(limit).all()
+    return PaginatedComplexResponse(items=items, total=total)
+
+
+@router.get("/region-counts")
+def get_region_counts(db: Session = Depends(get_db)):
+    """시/도별, 시/군/구별 단지 수 조회"""
+    complexes = db.query(Complex.region_code).filter(Complex.region_code.isnot(None)).all()
+
+    sido: Dict[str, int] = {}
+    region: Dict[str, int] = {}
+    for (code,) in complexes:
+        if code and len(code) >= 2:
+            key = code[:2]
+            sido[key] = sido.get(key, 0) + 1
+        if code and len(code) >= 5:
+            key = code[:5]
+            region[key] = region.get(key, 0) + 1
+
+    return {"sido_counts": sido, "region_counts": region}
+
+
+@router.get("/last-runs")
+def get_complex_last_runs(db: Session = Depends(get_db)):
+    """각 단지의 마지막 수집 상태를 반환"""
+    # CrawlTask.task_key에서 complex_id를 추출하여 가장 최신 run 정보를 매핑
+    # task_key format: kb_price_{complex_id}_{area_id}, kb_transaction_{complex_id}, kb_listing_{complex_id}
+    from sqlalchemy import text
+
+    # 모든 task를 가져와 complex_id별 가장 최신 run 정보를 추출
+    tasks = (
+        db.query(CrawlTask, CrawlRun)
+        .join(CrawlRun, CrawlTask.run_id == CrawlRun.id)
+        .order_by(CrawlRun.started_at.desc())
+        .all()
+    )
+
+    result: Dict[int, Any] = {}
+    for task, run in tasks:
+        # task_key에서 complex_id 추출
+        parts = task.task_key.split("_")
+        try:
+            # kb_price_3_1 → complex_id=3, kb_transaction_3 → complex_id=3
+            if parts[0] == "kb" and len(parts) >= 3:
+                cid = int(parts[2])
+            else:
+                continue
+        except (ValueError, IndexError):
+            continue
+
+        if cid not in result:
+            result[cid] = {
+                "run_id": run.id,
+                "status": run.status.value if hasattr(run.status, 'value') else str(run.status),
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+            }
+
+    return result
 
 
 @router.get("/{complex_id}", response_model=ComplexSchema)
@@ -217,45 +294,6 @@ def batch_collect_complexes(
         "task_id": task.id,
         "count": len(complexes),
     }
-
-
-@router.get("/last-runs")
-def get_complex_last_runs(db: Session = Depends(get_db)):
-    """각 단지의 마지막 수집 상태를 반환"""
-    # CrawlTask.task_key에서 complex_id를 추출하여 가장 최신 run 정보를 매핑
-    # task_key format: kb_price_{complex_id}_{area_id}, kb_transaction_{complex_id}, kb_listing_{complex_id}
-    from sqlalchemy import text
-
-    # 모든 task를 가져와 complex_id별 가장 최신 run 정보를 추출
-    tasks = (
-        db.query(CrawlTask, CrawlRun)
-        .join(CrawlRun, CrawlTask.run_id == CrawlRun.id)
-        .order_by(CrawlRun.started_at.desc())
-        .all()
-    )
-
-    result: Dict[int, Any] = {}
-    for task, run in tasks:
-        # task_key에서 complex_id 추출
-        parts = task.task_key.split("_")
-        try:
-            # kb_price_3_1 → complex_id=3, kb_transaction_3 → complex_id=3
-            if parts[0] == "kb" and len(parts) >= 3:
-                cid = int(parts[2])
-            else:
-                continue
-        except (ValueError, IndexError):
-            continue
-
-        if cid not in result:
-            result[cid] = {
-                "run_id": run.id,
-                "status": run.status.value if hasattr(run.status, 'value') else str(run.status),
-                "started_at": run.started_at.isoformat() if run.started_at else None,
-                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-            }
-
-    return result
 
 
 @router.post("/discover-region")

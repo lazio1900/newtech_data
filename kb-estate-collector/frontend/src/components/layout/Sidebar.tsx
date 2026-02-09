@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom"
 import {
   LayoutDashboard,
   Building2,
-  ListChecks,
+  CalendarClock,
   History,
   Database,
 } from "lucide-react"
@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "대시보드" },
   { to: "/complexes", icon: Building2, label: "단지 관리" },
-  { to: "/jobs", icon: ListChecks, label: "수집 작업" },
+  { to: "/batches", icon: CalendarClock, label: "배치 설정" },
   { to: "/runs", icon: History, label: "실행 이력" },
   { to: "/data", icon: Database, label: "데이터 탐색" },
 ]

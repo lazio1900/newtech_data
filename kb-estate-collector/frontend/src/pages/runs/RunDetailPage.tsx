@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { useParams, useNavigate, Link } from "react-router-dom"
 import { ArrowLeft, MapPin, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,7 @@ import {
 import PageHeader from "@/components/layout/PageHeader"
 import StatusBadge from "@/components/shared/StatusBadge"
 import EmptyState from "@/components/shared/EmptyState"
+import Pagination, { paginate } from "@/components/shared/Pagination"
 import { useRun, useRunTasks } from "@/hooks/useRuns"
 import {
   RUN_STATUS_LABELS,
@@ -39,10 +40,15 @@ export default function RunDetailPage() {
 
   const { data: run, isLoading } = useRun(runId)
   const [taskFilter, setTaskFilter] = useState<string | undefined>()
+  const [taskPage, setTaskPage] = useState(1)
+  const [taskPageSize, setTaskPageSize] = useState(10)
   const { data: tasks } = useRunTasks(runId, {
     status_filter: taskFilter,
-    limit: 200,
+    limit: 1000,
   })
+
+  const allTasks = tasks ?? []
+  const pagedTasks = useMemo(() => paginate(allTasks, taskPage, taskPageSize), [allTasks, taskPage, taskPageSize])
 
   if (isLoading) {
     return <p className="py-8 text-center text-muted-foreground">로딩중...</p>
@@ -146,7 +152,7 @@ export default function RunDetailPage() {
                   key={f.label}
                   variant={taskFilter === f.value ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setTaskFilter(f.value)}
+                  onClick={() => { setTaskFilter(f.value); setTaskPage(1) }}
                   className="h-7 px-2.5 text-xs"
                 >
                   {f.label}
@@ -156,9 +162,10 @@ export default function RunDetailPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {!tasks || tasks.length === 0 ? (
+          {allTasks.length === 0 ? (
             <EmptyState message="태스크가 없습니다" />
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -172,7 +179,7 @@ export default function RunDetailPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {tasks.map((task) => (
+                {pagedTasks.map((task) => (
                   <TableRow key={task.id}>
                     <TableCell className="max-w-[200px] truncate text-xs font-mono">
                       {task.task_key}
@@ -201,6 +208,14 @@ export default function RunDetailPage() {
                 ))}
               </TableBody>
             </Table>
+            <Pagination
+              total={allTasks.length}
+              page={taskPage}
+              pageSize={taskPageSize}
+              onPageChange={setTaskPage}
+              onPageSizeChange={setTaskPageSize}
+            />
+            </>
           )}
         </CardContent>
       </Card>

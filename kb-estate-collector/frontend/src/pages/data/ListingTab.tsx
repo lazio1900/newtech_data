@@ -11,7 +11,7 @@ import {
 import StatusBadge from "@/components/shared/StatusBadge"
 import EmptyState from "@/components/shared/EmptyState"
 import { useListings } from "@/hooks/useData"
-import { useComplexes } from "@/hooks/useComplexes"
+import { useComplex } from "@/hooks/useComplexes"
 import { LISTING_STATUS_LABELS } from "@/lib/constants"
 import { formatPrice, formatDate, formatM2 } from "@/lib/format"
 
@@ -26,11 +26,7 @@ export default function ListingTab({ complexId }: ListingTabProps) {
     status: statusFilter,
     limit: 200,
   })
-  const { data: complexes } = useComplexes({ limit: 1000 })
-
-  const complexMap = new Map(
-    (complexes ?? []).map((c) => [c.id, c.name])
-  )
+  const { data: complex } = useComplex(complexId ?? 0)
 
   return (
     <Card>
@@ -79,7 +75,7 @@ export default function ListingTab({ complexId }: ListingTabProps) {
                 <TableRow key={l.id}>
                   {!complexId && (
                     <TableCell className="text-sm">
-                      {complexMap.get(l.complex_id) ?? `#${l.complex_id}`}
+                      {complex?.name ?? `#${l.complex_id}`}
                     </TableCell>
                   )}
                   <TableCell className="text-xs font-mono text-muted-foreground">

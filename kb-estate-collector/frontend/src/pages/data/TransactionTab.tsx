@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/table"
 import EmptyState from "@/components/shared/EmptyState"
 import { useTransactions } from "@/hooks/useData"
-import { useComplexes } from "@/hooks/useComplexes"
+import { useComplex } from "@/hooks/useComplexes"
 import { formatPrice, formatDate, formatM2 } from "@/lib/format"
 
 interface TransactionTabProps {
@@ -21,11 +21,7 @@ export default function TransactionTab({ complexId }: TransactionTabProps) {
     complex_id: complexId,
     limit: 200,
   })
-  const { data: complexes } = useComplexes({ limit: 1000 })
-
-  const complexMap = new Map(
-    (complexes ?? []).map((c) => [c.id, c.name])
-  )
+  const { data: complex } = useComplex(complexId ?? 0)
 
   return (
     <Card>
@@ -53,7 +49,7 @@ export default function TransactionTab({ complexId }: TransactionTabProps) {
                 <TableRow key={t.id}>
                   {!complexId && (
                     <TableCell className="text-sm">
-                      {complexMap.get(t.complex_id) ?? `#${t.complex_id}`}
+                      {complex?.name ?? `#${t.complex_id}`}
                     </TableCell>
                   )}
                   <TableCell>{formatDate(t.contract_date)}</TableCell>

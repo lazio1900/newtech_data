@@ -1,11 +1,25 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query"
 import { complexesApi } from "@/api/complexes"
 import type { ComplexCreate } from "@/types/complex"
 
-export function useComplexes(params?: { is_active?: boolean; skip?: number; limit?: number }) {
+export function useComplexes(params?: {
+  is_active?: boolean
+  skip?: number
+  limit?: number
+  search?: string
+  region_code?: string
+}) {
   return useQuery({
     queryKey: ["complexes", params],
     queryFn: () => complexesApi.list(params),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useRegionCounts() {
+  return useQuery({
+    queryKey: ["complexes", "regionCounts"],
+    queryFn: () => complexesApi.regionCounts(),
   })
 }
 

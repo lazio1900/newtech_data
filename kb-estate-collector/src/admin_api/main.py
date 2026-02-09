@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.core.logging import logger
-from src.admin_api.routers import complexes, jobs, runs, data_explorer
+from src.admin_api.routers import complexes, jobs, runs, data_explorer, batches
 
 # Create FastAPI app
 app = FastAPI(
@@ -24,6 +24,7 @@ app.include_router(complexes.router, prefix="/api/complexes", tags=["Complexes"]
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(runs.router, prefix="/api/runs", tags=["Runs"])
 app.include_router(data_explorer.router, prefix="/api/data", tags=["Data"])
+app.include_router(batches.router, prefix="/api/batches", tags=["Batches"])
 
 
 @app.get("/")

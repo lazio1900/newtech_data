@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react"
 import { Link } from "react-router-dom"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -11,12 +12,18 @@ import {
 import PageHeader from "@/components/layout/PageHeader"
 import StatusBadge from "@/components/shared/StatusBadge"
 import EmptyState from "@/components/shared/EmptyState"
+import Pagination, { paginate } from "@/components/shared/Pagination"
 import { useRuns } from "@/hooks/useRuns"
 import { RUN_STATUS_LABELS } from "@/lib/constants"
 import { formatDateTime, formatDuration } from "@/lib/format"
 
 export default function RunListPage() {
-  const { data: runs, isLoading } = useRuns({ limit: 100 })
+  const { data: runs, isLoading } = useRuns({ limit: 1000 })
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+
+  const allRuns = runs ?? []
+  const paged = useMemo(() => paginate(allRuns, page, pageSize), [allRuns, page, pageSize])
 
   return (
     <div>
@@ -28,9 +35,10 @@ export default function RunListPage() {
             <p className="py-8 text-center text-sm text-muted-foreground">
               로딩중...
             </p>
-          ) : !runs || runs.length === 0 ? (
+          ) : allRuns.length === 0 ? (
             <EmptyState message="실행 이력이 없습니다" />
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -45,7 +53,7 @@ export default function RunListPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {runs.map((run) => (
+                {paged.map((run) => (
                   <TableRow key={run.id} className="cursor-pointer hover:bg-accent">
                     <TableCell>
                       <Link
@@ -83,6 +91,14 @@ export default function RunListPage() {
                 ))}
               </TableBody>
             </Table>
+            <Pagination
+              total={allRuns.length}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
+            </>
           )}
         </CardContent>
       </Card>

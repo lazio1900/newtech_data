@@ -13,19 +13,18 @@ import {
 import EmptyState from "@/components/shared/EmptyState"
 import PriceTrendChart from "@/components/charts/PriceTrendChart"
 import { useKBPrices } from "@/hooks/useData"
+import { useComplex } from "@/hooks/useComplexes"
 import { dataApi } from "@/api/data"
 import { formatPrice, formatDate } from "@/lib/format"
-import type { Complex } from "@/types/complex"
 
 interface PriceTabProps {
   complexId: number | undefined
-  complexes: Complex[]
 }
 
-export default function PriceTab({ complexId, complexes }: PriceTabProps) {
+export default function PriceTab({ complexId }: PriceTabProps) {
   const [areaId, setAreaId] = useState<number | undefined>()
 
-  const complex = complexes.find((c) => c.id === complexId)
+  const { data: complex } = useComplex(complexId ?? 0)
   const areas = complex?.areas ?? []
 
   const { data: prices, isLoading } = useKBPrices({
