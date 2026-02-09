@@ -15,8 +15,9 @@ export default function DashboardPage() {
   const { data: jobs } = useJobs()
   const { data: runs } = useRuns({ limit: 50 })
 
-  const totalComplexes = complexes?.length ?? 0
-  const activeComplexes = complexes?.filter((c) => c.is_active).length ?? 0
+  const complexList = complexes?.items ?? []
+  const totalComplexes = complexes?.total ?? 0
+  const activeComplexes = complexList.filter((c) => c.is_active).length
   const activeJobs = jobs?.filter((j) => j.status === "active").length ?? 0
   const recentRuns = runs?.slice(0, 5) ?? []
   const lastSuccess = runs?.find((r) => r.status === "success")
@@ -100,7 +101,14 @@ export default function DashboardPage() {
                         status={run.status}
                         label={RUN_STATUS_LABELS[run.status] || run.status}
                       />
-                      <span className="text-sm">실행 #{run.id}</span>
+                      <span className="text-sm">
+                        실행 #{run.id}
+                        {run.target_summary && (
+                          <span className="ml-2 text-muted-foreground">
+                            ({run.target_summary})
+                          </span>
+                        )}
+                      </span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
                       <span>
