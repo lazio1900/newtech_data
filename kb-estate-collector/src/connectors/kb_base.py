@@ -86,7 +86,7 @@ class KBBaseConnector(BaseConnector):
         if self._http_client is None or self._http_client.is_closed:
             self._http_client = httpx.AsyncClient(
                 headers=self._get_default_headers(),
-                timeout=30.0,
+                timeout=90.0,
                 follow_redirects=True,
                 http2=True,
             )

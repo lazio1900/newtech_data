@@ -38,11 +38,22 @@ class ComplexSchema(BaseModel):
     id: int
     name: str
     address: str
+    road_address: Optional[str] = None
     region_code: Optional[str]
+    dong_code: Optional[str] = None
+    dong_name: Optional[str] = None
     kb_complex_id: Optional[str]
     priority: PriorityLevel
     is_active: bool
     collect_listings: bool
+    total_households: Optional[int] = None
+    total_buildings: Optional[int] = None
+    max_floor: Optional[int] = None
+    built_year: Optional[str] = None
+    total_parking: Optional[int] = None
+    hallway_type: Optional[str] = None
+    heating_type: Optional[str] = None
+    builder: Optional[str] = None
     areas: List[AreaSchema] = []
 
     class Config:

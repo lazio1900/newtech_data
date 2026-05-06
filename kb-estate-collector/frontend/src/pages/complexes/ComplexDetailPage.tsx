@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
-import { ArrowLeft, Pencil, Trash2 } from "lucide-react"
+import { ArrowLeft, Pencil, Trash2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -22,6 +22,7 @@ import { useComplex, useUpdateComplex, useDeleteComplex } from "@/hooks/useCompl
 import { useKBPrices, useTransactions, useListings } from "@/hooks/useData"
 import { PRIORITY_LABELS, LISTING_STATUS_LABELS } from "@/lib/constants"
 import { formatPrice, formatDate, formatM2 } from "@/lib/format"
+import { dataApi } from "@/api/data"
 import { toast } from "sonner"
 
 export default function ComplexDetailPage() {
@@ -63,9 +64,9 @@ export default function ComplexDetailPage() {
         title={complex.name}
         actions={
           <>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/complexes")}>
+            <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
               <ArrowLeft className="mr-1.5 h-4 w-4" />
-              목록
+              뒤로
             </Button>
             <Button variant="outline" size="sm" onClick={() => setShowEdit(true)}>
               <Pencil className="mr-1.5 h-4 w-4" />
@@ -84,35 +85,70 @@ export default function ComplexDetailPage() {
         }
       />
 
-      <div className="mb-6 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-md border p-3">
-          <span className="text-muted-foreground">주소</span>
-          <p className="mt-1 font-medium">{complex.address}</p>
-        </div>
-        <div className="rounded-md border p-3">
-          <span className="text-muted-foreground">KB 단지 ID</span>
-          <p className="mt-1 font-medium">{complex.kb_complex_id || "-"}</p>
-        </div>
-        <div className="rounded-md border p-3">
-          <span className="text-muted-foreground">우선순위 / 상태</span>
-          <div className="mt-1 flex gap-2">
-            <StatusBadge
-              status={complex.priority}
-              label={PRIORITY_LABELS[complex.priority]}
-            />
-            <StatusBadge
-              status={complex.is_active ? "active" : "disabled"}
-              label={complex.is_active ? "활성" : "비활성"}
-            />
+      {/* 단지 기본 정보 */}
+      <Card className="mb-6">
+        <CardContent className="pt-5">
+          <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <span className="text-muted-foreground">도로명주소</span>
+              <p className="mt-0.5 font-medium">{complex.road_address || complex.address || "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">지번주소</span>
+              <p className="mt-0.5 font-medium">{complex.address || "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">준공</span>
+              <p className="mt-0.5 font-medium">{complex.built_year || "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">세대수</span>
+              <p className="mt-0.5 font-medium">{complex.total_households ? `${complex.total_households.toLocaleString()}세대` : "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">동수</span>
+              <p className="mt-0.5 font-medium">{complex.total_buildings ? `${complex.total_buildings}동` : "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">최고층</span>
+              <p className="mt-0.5 font-medium">{complex.max_floor ? `${complex.max_floor}층` : "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">주차</span>
+              <p className="mt-0.5 font-medium">{complex.total_parking ? `${complex.total_parking.toLocaleString()}대` : "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">현관구조</span>
+              <p className="mt-0.5 font-medium">{complex.hallway_type || "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">난방</span>
+              <p className="mt-0.5 font-medium">{complex.heating_type || "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">시공사</span>
+              <p className="mt-0.5 font-medium">{complex.builder || "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">KB 단지 ID</span>
+              <p className="mt-0.5 font-medium">{complex.kb_complex_id || "-"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">상태</span>
+              <div className="mt-0.5 flex gap-2">
+                <StatusBadge
+                  status={complex.priority}
+                  label={PRIORITY_LABELS[complex.priority]}
+                />
+                <StatusBadge
+                  status={complex.is_active ? "active" : "disabled"}
+                  label={complex.is_active ? "활성" : "비활성"}
+                />
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="rounded-md border p-3">
-          <span className="text-muted-foreground">지역코드 / 매물수집</span>
-          <p className="mt-1 font-medium">
-            {complex.region_code || "-"} / {complex.collect_listings ? "ON" : "OFF"}
-          </p>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="areas">
         <TabsList>
@@ -160,20 +196,35 @@ export default function ComplexDetailPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">KB 시세 추이</CardTitle>
-                {complex.areas && complex.areas.length > 1 && (
-                  <select
-                    className="rounded border px-2 py-1 text-sm"
-                    value={areaId}
-                    onChange={(e) => setSelectedAreaId(Number(e.target.value))}
+                <div className="flex items-center gap-2">
+                  {complex.areas && complex.areas.length > 1 && (
+                    <select
+                      className="rounded border px-2 py-1 text-sm"
+                      value={areaId}
+                      onChange={(e) => setSelectedAreaId(Number(e.target.value))}
+                    >
+                      {complex.areas.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {formatM2(a.exclusive_m2)}
+                          {a.pyeong ? ` (${a.pyeong}평)` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      dataApi.exportPricesCsv({
+                        complex_id: complexId,
+                        area_id: areaId,
+                      })
+                    }
                   >
-                    {complex.areas.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {formatM2(a.exclusive_m2)}
-                        {a.pyeong ? ` (${a.pyeong}평)` : ""}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                    <Download className="mr-1.5 h-4 w-4" />
+                    CSV
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>

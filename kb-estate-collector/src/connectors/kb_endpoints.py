@@ -155,6 +155,37 @@ REGION_DONG = KBEndpoint(
     description="시군구별 법정동 목록. 파라미터: 시도명, 시군구명. 응답: [{법정동명, 법정동코드}]",
 )
 
+# 단지 학군 (어린이집/유치원/초/중/고)
+# 학교과정분류구분: 01=어린이집, 02=유치원, 03=초등학교, 04=중학교, 05=고등학교
+COMPLEX_SCHOOL_LIST = KBEndpoint(
+    name="complex_school_list",
+    base_url=KB_API_BASE,
+    path="/land-complex/complexSchool/list",
+    method="GET",
+    description=(
+        "단지 주변 학군 목록. 파라미터: 단지기본일련번호, 학교과정분류구분 "
+        "(01=어린이집, 02=유치원, 03=초등, 04=중등, 05=고등)"
+    ),
+)
+
+# 좌표 박스 기반 시설 마커 (지하철/병원)
+# 파라미터: startLat, startLng, endLat, endLng, zoomLevel
+SUBWAY_MARKER_LIST = KBEndpoint(
+    name="subway_marker_list",
+    base_url=KB_API_BASE,
+    path="/land-complex/honeyLocation/subwayMarkerList",
+    method="GET",
+    description="좌표 박스 내 지하철역 마커 목록.",
+)
+
+HOSPITAL_MARKER_LIST = KBEndpoint(
+    name="hospital_marker_list",
+    base_url=KB_API_BASE,
+    path="/land-complex/honeyLocation/hospitalMarkerList",
+    method="GET",
+    description="좌표 박스 내 병원 마커 목록 (대표종류 포함).",
+)
+
 # ------------------------------------------------------------------
 # 한글 파라미터명 상수 (API가 한글 키 사용)
 # ------------------------------------------------------------------

@@ -22,6 +22,7 @@ from src.core.database import SessionLocal
 from src.models import (
     CrawlRun, CrawlTask, Complex, Area,
     KBPrice, Transaction, Listing, ListingStatus,
+    ComplexFacility,
     RunStatus, TaskStatus,
 )
 from src.connectors import KBPriceConnector, KBTransactionConnector, KBListingConnector
@@ -36,6 +37,151 @@ def run_async(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+
+
+def ensure_complex_detail(db: Session, complex_obj: Complex):
+    """
+    단지 기본 정보가 없으면 KB API에서 조회하여 업데이트.
+    (세대수, 동수, 최고층수, 준공년월, 주차대수, 현관구조, 주소, 법정동 등)
+    """
+    # 이미 핵심 정보(세대수)와 법정동코드가 모두 채워졌으면 스킵
+    if complex_obj.total_households and complex_obj.dong_code:
+        return
+
+    if not complex_obj.kb_complex_id:
+        return
+
+    try:
+        from src.connectors.kb_endpoints import COMPLEX_DETAIL
+        from src.services.complex_discovery import _DiscoveryConnector
+
+        connector = _DiscoveryConnector(name="detail_fetch", rate_limit_per_minute=30)
+        data = run_async(
+            connector._fetch_via_http(
+                COMPLEX_DETAIL,
+                {"단지기본일련번호": complex_obj.kb_complex_id, "물건종류": "01"},
+            )
+        )
+
+        body = data.get("dataBody", {}).get("data", {})
+        if not body:
+            return
+
+        # 주소
+        road_addr = body.get("신주소") or body.get("도로기본주소")
+        old_addr = body.get("구주소")
+        if road_addr:
+            complex_obj.road_address = road_addr
+        if old_addr and not complex_obj.address:
+            complex_obj.address = old_addr
+
+        # 기본 정보
+        complex_obj.total_households = body.get("총세대수")
+        complex_obj.total_buildings = body.get("총동수")
+        complex_obj.max_floor = body.get("최고층수") or body.get("건물최고층수")
+        complex_obj.total_parking = body.get("총주차대수")
+        complex_obj.hallway_type = body.get("현관구조")
+        complex_obj.heating_type = body.get("난방방식구분명")
+        complex_obj.builder = body.get("시공사명")
+
+        # 준공년월
+        built = body.get("준공년월")
+        if built:
+            complex_obj.built_year = built
+
+        # 법정동코드 + 동명 (KB API: '법정동코드', '읍면동명')
+        dong_code = body.get("법정동코드") or body.get("dongCd")
+        if dong_code:
+            complex_obj.dong_code = str(dong_code)
+        dong_name = (
+            body.get("읍면동명")
+            or body.get("법정동명")
+            or body.get("dongNm")
+        )
+        if dong_name:
+            complex_obj.dong_name = dong_name
+
+        # 좌표 (시설 마커 endpoint 호출용)
+        lat = body.get("wgs84위도")
+        lng = body.get("wgs84경도")
+        if lat:
+            try:
+                complex_obj.lat = float(lat)
+            except (ValueError, TypeError):
+                pass
+        if lng:
+            try:
+                complex_obj.lng = float(lng)
+            except (ValueError, TypeError):
+                pass
+
+        db.flush()
+        logger.info(
+            f"Complex {complex_obj.id} ({complex_obj.name}): "
+            f"detail fetched - {complex_obj.total_households}세대, "
+            f"{complex_obj.built_year} 준공, dong={complex_obj.dong_code or '-'}({complex_obj.dong_name or '-'})"
+        )
+
+    except Exception as e:
+        logger.warning(f"Complex {complex_obj.id}: detail fetch failed: {e}")
+
+
+def ensure_complex_facilities(db: Session, complex_obj: Complex) -> int:
+    """단지 주변 학군(어린이집/유치원/초/중/고)을 KB API에서 수집해 저장.
+
+    이미 학군 데이터가 있으면 스킵. 신규 단지 또는 facility 비어있는 단지만 수집.
+    반환: 저장된 facility row 수.
+    """
+    if not complex_obj.kb_complex_id:
+        return 0
+
+    # 이미 학군 데이터 있으면 스킵
+    existing = (
+        db.query(ComplexFacility.id)
+        .filter(
+            ComplexFacility.complex_id == complex_obj.id,
+            ComplexFacility.facility_type == "school",
+        )
+        .first()
+    )
+    if existing:
+        return 0
+
+    try:
+        from src.connectors.kb_school import KBSchoolConnector
+
+        connector = KBSchoolConnector(rate_limit_per_minute=30)
+        result = run_async(connector.fetch_all(complex_obj.kb_complex_id))
+
+        saved = 0
+        now = datetime.utcnow()
+        for sub_type, items in result.items():
+            for item in items:
+                fac = ComplexFacility(
+                    complex_id=complex_obj.id,
+                    facility_type="school",
+                    sub_type=sub_type,
+                    external_id=item.get("external_id"),
+                    name=item.get("name"),
+                    address=item.get("address"),
+                    phone=item.get("phone"),
+                    distance_m=item.get("distance_m"),
+                    lat=item.get("lat"),
+                    lng=item.get("lng"),
+                    meta=item.get("meta"),
+                    fetched_at=now,
+                )
+                db.add(fac)
+                saved += 1
+
+        db.flush()
+        logger.info(
+            f"Complex {complex_obj.id} ({complex_obj.name}): facilities collected — school {saved}"
+        )
+        return saved
+    except Exception as e:
+        logger.warning(f"Complex {complex_obj.id}: facility fetch failed: {e}")
+        return 0
 
 
 def ensure_complex_areas(db: Session, complex_obj: Complex) -> List[Area]:
@@ -508,6 +654,12 @@ def run_kb_collection(
 
         total_tasks = 0
         for complex_obj in complexes:
+            # 단지 기본 정보 수집 (세대수, 년식, 주소 등)
+            ensure_complex_detail(db, complex_obj)
+
+            # 단지 주변 학군 수집 (이미 있으면 스킵)
+            ensure_complex_facilities(db, complex_obj)
+
             # 면적이 없으면 KB API에서 자동 조회
             areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
 
@@ -616,6 +768,12 @@ def run_region_collection(
     # Step 3: 태스크 실행
     total_tasks = 0
     for complex_obj in complexes:
+        # 단지 기본 정보 수집
+        ensure_complex_detail(db, complex_obj)
+
+        # 단지 주변 학군 수집 (이미 있으면 스킵)
+        ensure_complex_facilities(db, complex_obj)
+
         # 면적이 없으면 KB API에서 자동 조회
         areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
 

@@ -27,55 +27,63 @@ export default function DashboardPage() {
       <PageHeader title="대시보드" description="KB 부동산 데이터 수집 현황" />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">총 단지</CardTitle>
-            <Building2 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalComplexes}</div>
-            <p className="text-xs text-muted-foreground">활성 {activeComplexes}개</p>
-          </CardContent>
-        </Card>
+        <Link to="/complexes">
+          <Card className="cursor-pointer transition-shadow hover:shadow-md">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">총 단지</CardTitle>
+              <Building2 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalComplexes}</div>
+              <p className="text-xs text-muted-foreground">활성 {activeComplexes}개</p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">활성 작업</CardTitle>
-            <ListChecks className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{activeJobs}</div>
-            <p className="text-xs text-muted-foreground">전체 {jobs?.length ?? 0}개</p>
-          </CardContent>
-        </Card>
+        <Link to="/batches">
+          <Card className="cursor-pointer transition-shadow hover:shadow-md">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">활성 작업</CardTitle>
+              <ListChecks className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{activeJobs}</div>
+              <p className="text-xs text-muted-foreground">전체 {jobs?.length ?? 0}개</p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">총 실행</CardTitle>
-            <History className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{runs?.length ?? 0}</div>
-            <p className="text-xs text-muted-foreground">최근 50건</p>
-          </CardContent>
-        </Card>
+        <Link to="/runs">
+          <Card className="cursor-pointer transition-shadow hover:shadow-md">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">총 실행</CardTitle>
+              <History className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{runs?.length ?? 0}</div>
+              <p className="text-xs text-muted-foreground">최근 50건</p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">최근 성공</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {lastSuccess ? `${lastSuccess.success_count}건` : "-"}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {lastSuccess
-                ? formatDateTime(lastSuccess.started_at)
-                : "실행 이력 없음"}
-            </p>
-          </CardContent>
-        </Card>
+        <Link to="/runs">
+          <Card className="cursor-pointer transition-shadow hover:shadow-md">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">최근 성공</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {lastSuccess ? `${lastSuccess.success_count}건` : "-"}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {lastSuccess
+                  ? formatDateTime(lastSuccess.started_at)
+                  : "실행 이력 없음"}
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">

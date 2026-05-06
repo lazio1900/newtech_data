@@ -20,11 +20,28 @@ class Complex(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False, comment="단지명")
     address = Column(String(500), nullable=False, comment="주소")
-    region_code = Column(String(20), nullable=True, comment="지역코드")
-    
+    region_code = Column(String(20), nullable=True, index=True, comment="시군구코드 (5자리)")
+
+    # 법정동 (KB API 응답의 법정동코드/법정동명)
+    dong_code = Column(String(10), nullable=True, index=True, comment="법정동코드 (10자리)")
+    dong_name = Column(String(50), nullable=True, comment="법정동명")
+
     # KB 소스 식별자
     kb_complex_id = Column(String(50), unique=True, nullable=True, comment="KB 단지 ID")
-    
+
+    # 단지 기본 정보 (KB API에서 수집)
+    lat = Column(Float, nullable=True, comment="WGS84 위도 (단지 중심)")
+    lng = Column(Float, nullable=True, comment="WGS84 경도")
+    road_address = Column(String(500), nullable=True, comment="도로명주소")
+    total_households = Column(Integer, nullable=True, comment="총세대수")
+    total_buildings = Column(Integer, nullable=True, comment="총동수")
+    max_floor = Column(Integer, nullable=True, comment="최고층수")
+    built_year = Column(String(10), nullable=True, comment="준공년월 (YYYY.MM)")
+    total_parking = Column(Integer, nullable=True, comment="총주차대수")
+    hallway_type = Column(String(50), nullable=True, comment="현관구조 (계단식/복도식)")
+    heating_type = Column(String(50), nullable=True, comment="난방방식")
+    builder = Column(String(200), nullable=True, comment="시공사")
+
     # 수집 설정
     priority = Column(Enum(PriorityLevel), default=PriorityLevel.NORMAL, comment="수집 우선순위")
     is_active = Column(Boolean, default=True, comment="수집 활성화 여부")

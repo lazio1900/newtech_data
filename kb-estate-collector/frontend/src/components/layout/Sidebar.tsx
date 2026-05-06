@@ -1,10 +1,9 @@
-import { NavLink } from "react-router-dom"
+import { NavLink, Link } from "react-router-dom"
 import {
   LayoutDashboard,
   Building2,
   CalendarClock,
   History,
-  Database,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -13,16 +12,15 @@ const navItems = [
   { to: "/complexes", icon: Building2, label: "단지 관리" },
   { to: "/batches", icon: CalendarClock, label: "배치 설정" },
   { to: "/runs", icon: History, label: "실행 이력" },
-  { to: "/data", icon: Database, label: "데이터 탐색" },
 ]
 
 export default function Sidebar() {
   return (
     <aside className="flex h-screen w-56 flex-col border-r bg-card">
-      <div className="flex h-14 items-center border-b px-4">
+      <Link to="/" className="flex h-14 items-center border-b px-4 hover:bg-accent transition-colors">
         <Building2 className="mr-2 h-5 w-5 text-primary" />
         <span className="font-semibold text-sm">KB Estate Collector</span>
-      </div>
+      </Link>
       <nav className="flex-1 space-y-1 p-2">
         {navItems.map((item) => (
           <NavLink
