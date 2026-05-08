@@ -28,6 +28,7 @@ import ComplexFormDialog from "./ComplexFormDialog"
 import {
   useComplexes,
   useRegionCounts,
+  useDongCounts,
   useCreateComplex,
   useDiscoverRegion,
   useCollectComplex,
@@ -56,6 +57,7 @@ export default function ComplexListPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [selectedSido, setSelectedSido] = useState<string | null>(null)
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null)
+  const [selectedDong, setSelectedDong] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [showDiscover, setShowDiscover] = useState(false)
   const [discoverResult, setDiscoverResult] = useState<DiscoverResult | null>(null)
@@ -80,7 +82,11 @@ export default function ComplexListPage() {
     limit: pageSize,
     search: debouncedSearch || undefined,
     region_code: regionCode,
+    dong_code: selectedDong || undefined,
   })
+
+  // 시군구 선택 시 동 카운트
+  const { data: dongData } = useDongCounts(selectedRegion)
 
   const complexes = data?.items ?? []
   const total = data?.total ?? 0
@@ -106,6 +112,12 @@ export default function ComplexListPage() {
       }
     }
     return result
+  }, [selectedSido])
+
+  // 시도 변경 시 하위 선택 초기화
+  useEffect(() => {
+    setSelectedRegion(null)
+    setSelectedDong(null)
   }, [selectedSido])
 
   // 현재 페이지 전체 선택
@@ -245,6 +257,7 @@ export default function ComplexListPage() {
                       key={code}
                       onClick={() => {
                         setSelectedRegion(isActive ? null : code)
+                        setSelectedDong(null)
                         setPage(1)
                       }}
                       className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
@@ -267,6 +280,45 @@ export default function ComplexListPage() {
                           {count}
                         </span>
                       )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 읍면동 선택 (시군구 선택 후) */}
+          {selectedRegion && dongData && dongData.items.length > 0 && (
+            <div>
+              <div className="mb-1.5 text-xs text-muted-foreground">
+                읍면동
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {dongData.items.map(({ dong_code, dong_name, count }) => {
+                  const isActive = selectedDong === dong_code
+                  return (
+                    <button
+                      key={dong_code}
+                      onClick={() => {
+                        setSelectedDong(isActive ? null : dong_code)
+                        setPage(1)
+                      }}
+                      className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                        isActive
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "hover:bg-accent"
+                      }`}
+                    >
+                      {dong_name || dong_code}
+                      <span
+                        className={`ml-1 ${
+                          isActive
+                            ? "text-primary-foreground/70"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {count}
+                      </span>
                     </button>
                   )
                 })}

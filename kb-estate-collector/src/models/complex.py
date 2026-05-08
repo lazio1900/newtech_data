@@ -1,4 +1,5 @@
 from datetime import datetime
+from src.core.time import now_kst
 from sqlalchemy import Column, Integer, String, DateTime, Float, Boolean, ForeignKey, Text, Enum
 from sqlalchemy.orm import relationship
 import enum
@@ -48,8 +49,8 @@ class Complex(Base):
     collect_listings = Column(Boolean, default=True, comment="매물 수집 여부")
     
     # 메타데이터
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_kst)
+    updated_at = Column(DateTime, default=now_kst, onupdate=now_kst)
     
     # Relationships
     areas = relationship("Area", back_populates="complex", cascade="all, delete-orphan")
@@ -75,8 +76,8 @@ class Area(Base):
     kb_area_code = Column(String(50), nullable=True, comment="KB 면적 코드")
     
     # 메타데이터
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_kst)
+    updated_at = Column(DateTime, default=now_kst, onupdate=now_kst)
     
     # Relationships
     complex = relationship("Complex", back_populates="areas")

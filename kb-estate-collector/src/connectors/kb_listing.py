@@ -59,11 +59,40 @@ class KBListingConnector(KBBaseConnector):
         api_pattern = "propList/main"
         return (page_url, api_pattern, None)
 
+    # Transient 오류 — 재시도 가능
+    _TRANSIENT_EXC = (
+        httpx.RemoteProtocolError,
+        httpx.ReadTimeout,
+        httpx.ConnectTimeout,
+        httpx.ConnectError,
+        httpx.WriteError,
+        httpx.PoolTimeout,
+    )
+
+    def _request_with_retry(self, client: "httpx.Client", method: str, url: str, *,
+                            max_retries: int = 3, **kwargs) -> "httpx.Response":
+        """transient 네트워크 오류(서버 disconnect, timeout 등)는 지수백오프로 재시도."""
+        import time as _time
+        last_exc = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                if method == "GET":
+                    return client.get(url, **kwargs)
+                if method == "POST":
+                    return client.post(url, **kwargs)
+                raise ValueError(f"unsupported method {method}")
+            except self._TRANSIENT_EXC as e:
+                last_exc = e
+                if attempt == max_retries:
+                    break
+                wait = 0.5 * (2 ** (attempt - 1))  # 0.5, 1, 2초
+                logger.warning(f"{self.name}: {method} {url} transient error '{e}', retry {attempt}/{max_retries} in {wait}s")
+                _time.sleep(wait)
+        raise NetworkError(f"transient request failed after {max_retries} attempts: {last_exc}")
+
     def fetch(self, **kwargs) -> Dict[str, Any]:
-        """
-        동기 2단계 fetch: brif GET → propList/main POST (전체 페이지 순회).
-        async event loop 문제를 피하기 위해 동기 httpx.Client 사용.
-        """
+        """동기 2단계 fetch: brif GET → propList/main POST (전체 페이지 순회).
+        transient 네트워크 오류 시 자동 재시도 (3회)."""
         kb_complex_id = kwargs.get("kb_complex_id") or self._resolve_kb_complex_id(kwargs["complex_id"])
 
         with httpx.Client(
@@ -74,7 +103,10 @@ class KBListingConnector(KBBaseConnector):
         ) as client:
             # Step 1: GET brif
             logger.info(f"{self.name}: GET brif for complex {kb_complex_id}")
-            brif_resp = client.get(COMPLEX_BRIF.url, params={"단지기본일련번호": kb_complex_id})
+            brif_resp = self._request_with_retry(
+                client, "GET", COMPLEX_BRIF.url,
+                params={"단지기본일련번호": kb_complex_id},
+            )
             if brif_resp.status_code != 200:
                 raise NetworkError(f"brif HTTP {brif_resp.status_code}")
             brif_data = brif_resp.json().get("dataBody", {}).get("data", {})
@@ -106,7 +138,13 @@ class KBListingConnector(KBBaseConnector):
                     "honeyYn": "0",
                 }
 
-                prop_resp = client.post(COMPLEX_PROP_LIST.url, json=post_body)
+                try:
+                    prop_resp = self._request_with_retry(
+                        client, "POST", COMPLEX_PROP_LIST.url, json=post_body,
+                    )
+                except NetworkError as e:
+                    logger.warning(f"{self.name}: propList page {page_no} retry exhausted: {e}")
+                    break
                 if prop_resp.status_code != 200:
                     logger.warning(f"{self.name}: propList page {page_no} HTTP {prop_resp.status_code}")
                     break

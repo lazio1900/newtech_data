@@ -204,4 +204,11 @@ class KBFacilityConnector(KBBaseConnector):
                 out.extend(await self.fetch_hospitals(lat, lng))
             except Exception as e:
                 logger.warning(f"[kb_facility] hospital for complex {kb_complex_id}: {e}")
+            # 자연환경 (OSM Overpass — KB 영역 외)
+            try:
+                from src.connectors.osm_nature import OSMNatureConnector
+                osm = OSMNatureConnector()
+                out.extend(await osm.fetch_parks(lat, lng, radius_m=1000))
+            except Exception as e:
+                logger.warning(f"[kb_facility] osm parks for complex {kb_complex_id}: {e}")
         return out

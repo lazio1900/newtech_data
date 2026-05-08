@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 
 from src.core.database import get_db
+from src.core.time import now_kst
 from src.models import CrawlJob, CrawlRun, JobType, JobStatus, RunStatus
 from src.workers.tasks import (
     run_kb_collection,
@@ -152,7 +153,7 @@ def create_and_run_job(
     run = CrawlRun(
         job_id=job.id,
         status=RunStatus.PENDING,
-        started_at=datetime.utcnow(),
+        started_at=now_kst(),
     )
     db.add(run)
     db.commit()
@@ -204,7 +205,7 @@ def run_job_now(job_id: int, db: Session = Depends(get_db)):
     run = CrawlRun(
         job_id=job.id,
         status=RunStatus.PENDING,
-        started_at=datetime.utcnow(),
+        started_at=now_kst(),
     )
     db.add(run)
     db.commit()
@@ -330,7 +331,7 @@ def run_region_collection_endpoint(
     run = CrawlRun(
         job_id=job.id,
         status=RunStatus.PENDING,
-        started_at=datetime.utcnow(),
+        started_at=now_kst(),
     )
     db.add(run)
     db.commit()

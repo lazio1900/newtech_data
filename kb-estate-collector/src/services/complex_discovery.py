@@ -121,24 +121,57 @@ class ComplexDiscoveryService:
         self.db.commit()
         results["total_found"] = results["new_registered"] + results["already_exists"]
 
+        # 신규 단지 detail 호출 — dong_code/lat/lng 채우고 region_code 정정
+        # KB 박스가 인근 시군구 단지도 같이 반환하므로 실제 region 으로 재분류 필요
+        new_kb_ids = [c["kb_complex_id"] for c in results["complexes"] if c["is_new"]]
+        if new_kb_ids:
+            await self._enrich_new_complexes(new_kb_ids)
+
         logger.info(
             f"Discovery complete: {results['total_found']} found, "
             f"{results['new_registered']} new, {results['already_exists']} existing"
         )
         return results
 
-    async def _fetch_complex_list(self, region_code: str) -> List[dict]:
-        """KB에서 단지 목록 가져오기 (HTTP 우선, 브라우저 폴백)"""
-        # map250mBlwInfoList API로 지역 내 단지 목록 조회
-        # 이 API는 좌표 기반이므로 먼저 지역코드에서 중심 좌표를 구해야 함
-        params = {
-            "selectCode": "1,2,3",
-            "zoomLevel": 14,  # 넓은 범위
-            "물건종류": "01",  # 아파트
-            "거래유형": "1,2,3",
-            "webCheck": "Y",
-        }
+    async def _enrich_new_complexes(self, kb_ids: List[str]) -> None:
+        """신규 단지에 detail 호출 → dong_code/lat/lng/region_code 정정."""
+        for kb_id in kb_ids:
+            try:
+                data = await self._connector._fetch_via_http(
+                    COMPLEX_DETAIL,
+                    {"단지기본일련번호": kb_id, "물건종류": "01"},
+                )
+                body = data.get("dataBody", {}).get("data", {})
+                if not body:
+                    continue
+                dong_code = body.get("법정동코드") or body.get("dongCd")
+                dong_name = body.get("읍면동명") or body.get("법정동명") or body.get("dongNm")
+                lat = body.get("wgs84위도") or body.get("위도")
+                lng = body.get("wgs84경도") or body.get("경도")
 
+                c = self.db.query(Complex).filter(Complex.kb_complex_id == kb_id).first()
+                if not c:
+                    continue
+                if dong_code:
+                    c.dong_code = str(dong_code)
+                    c.region_code = str(dong_code)[:5]  # 실제 region 으로 재분류
+                if dong_name:
+                    c.dong_name = dong_name
+                if lat:
+                    try: c.lat = float(lat)
+                    except (ValueError, TypeError): pass
+                if lng:
+                    try: c.lng = float(lng)
+                    except (ValueError, TypeError): pass
+            except Exception as e:
+                logger.warning(f"enrich {kb_id} failed: {e}")
+        self.db.commit()
+
+    async def _fetch_complex_list(self, region_code: str) -> List[dict]:
+        """KB에서 단지 목록 — 시군구 박스를 5x5 그리드로 분할 호출.
+
+        시군구 한 번 호출은 작은 박스로 일부만 반환됨. 그리드로 빠짐없이 커버.
+        """
         # 지역 좌표 구하기 (기본값: 서울 중심)
         lat, lng = 37.5665, 126.9780
         try:
@@ -148,20 +181,53 @@ class ComplexDiscoveryService:
         except Exception:
             pass
 
-        # 중심점 기준 넓은 범위 설정
-        offset = 0.03
-        params["startLat"] = lat - offset
-        params["startLng"] = lng - offset
-        params["endLat"] = lat + offset
-        params["endLng"] = lng + offset
+        # 시군구 전체 박스 (반경 약 3.3km)
+        half_extent = 0.03
+        grid_n = 5
+        step = (half_extent * 2) / grid_n
+        cell_offset = step / 2 + 0.001  # 약간 겹쳐서 셀 경계 빈공간 방지
 
-        try:
-            data = await self._connector._fetch_via_http(COMPLEX_SEARCH, params)
-            return self._extract_complex_list(data)
-        except (NetworkError, BrowserError, Exception) as e:
-            logger.warning(f"HTTP fetch failed, trying browser: {e}")
+        seen_kb_ids: set = set()
+        all_complexes: List[dict] = []
+        success_cells = 0
 
-        # 브라우저 폴백
+        for i in range(grid_n):
+            for j in range(grid_n):
+                cell_lat = lat - half_extent + step * (i + 0.5)
+                cell_lng = lng - half_extent + step * (j + 0.5)
+                params = {
+                    "selectCode": "1,2,3",
+                    "zoomLevel": 16,
+                    "물건종류": "01",
+                    "거래유형": "1,2,3",
+                    "webCheck": "Y",
+                    "startLat": cell_lat - cell_offset,
+                    "startLng": cell_lng - cell_offset,
+                    "endLat": cell_lat + cell_offset,
+                    "endLng": cell_lng + cell_offset,
+                }
+                try:
+                    data = await self._connector._fetch_via_http(COMPLEX_SEARCH, params)
+                    cell_list = self._extract_complex_list(data)
+                    for c in cell_list:
+                        kb_id = self._extract_kb_id(c)
+                        if kb_id and kb_id not in seen_kb_ids:
+                            seen_kb_ids.add(kb_id)
+                            all_complexes.append(c)
+                    success_cells += 1
+                except (NetworkError, BrowserError, Exception) as e:
+                    logger.warning(f"grid cell ({i},{j}) for {region_code}: {e}")
+
+        logger.info(
+            f"Discovery {region_code}: grid {success_cells}/{grid_n*grid_n} cells, "
+            f"{len(all_complexes)} unique complexes"
+        )
+
+        if all_complexes:
+            return all_complexes
+
+        # 그리드 모두 실패 시 브라우저 폴백
+        logger.warning(f"All grid cells failed for {region_code}, browser fallback")
         return await self._fetch_complex_list_via_browser(region_code)
 
     async def _get_region_coords(self, region_code: str) -> Optional[tuple]:

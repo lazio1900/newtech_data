@@ -1,15 +1,24 @@
 import apiClient from "./client"
-import type { Complex, ComplexCreate, ComplexLastRunMap, PaginatedComplexes, RegionCounts } from "@/types/complex"
+import type { Complex, ComplexCreate, ComplexLastRunMap, FacilityGroup, PaginatedComplexes, RegionCounts } from "@/types/complex"
 
 export const complexesApi = {
-  list: (params?: { skip?: number; limit?: number; is_active?: boolean; search?: string; region_code?: string }) =>
+  list: (params?: { skip?: number; limit?: number; is_active?: boolean; search?: string; region_code?: string; dong_code?: string }) =>
     apiClient.get<PaginatedComplexes>("/api/complexes", { params }).then((r) => r.data),
 
   regionCounts: () =>
     apiClient.get<RegionCounts>("/api/complexes/region-counts").then((r) => r.data),
 
+  dongCounts: (regionCode: string) =>
+    apiClient.get<{ items: { dong_code: string; dong_name: string; count: number }[] }>(
+      "/api/complexes/dong-counts",
+      { params: { region_code: regionCode } },
+    ).then((r) => r.data),
+
   get: (id: number) =>
     apiClient.get<Complex>(`/api/complexes/${id}`).then((r) => r.data),
+
+  facilities: (id: number) =>
+    apiClient.get<FacilityGroup>(`/api/complexes/${id}/facilities`).then((r) => r.data),
 
   create: (data: ComplexCreate) =>
     apiClient.post<Complex>("/api/complexes", data).then((r) => r.data),

@@ -18,7 +18,8 @@ import ConfirmDialog from "@/components/shared/ConfirmDialog"
 import EmptyState from "@/components/shared/EmptyState"
 import PriceTrendChart from "@/components/charts/PriceTrendChart"
 import ComplexFormDialog from "./ComplexFormDialog"
-import { useComplex, useUpdateComplex, useDeleteComplex } from "@/hooks/useComplexes"
+import FacilitiesPanel from "./FacilitiesPanel"
+import { useComplex, useUpdateComplex, useDeleteComplex, useComplexFacilities } from "@/hooks/useComplexes"
 import { useKBPrices, useTransactions, useListings } from "@/hooks/useData"
 import { PRIORITY_LABELS, LISTING_STATUS_LABELS } from "@/lib/constants"
 import { formatPrice, formatDate, formatM2 } from "@/lib/format"
@@ -49,6 +50,7 @@ export default function ComplexDetailPage() {
     limit: 100,
   })
   const { data: listings } = useListings({ complex_id: complexId, limit: 100 })
+  const { data: facilityGroup } = useComplexFacilities(complexId)
 
   if (isLoading) {
     return <p className="py-8 text-center text-muted-foreground">로딩중...</p>
@@ -156,6 +158,14 @@ export default function ComplexDetailPage() {
           <TabsTrigger value="prices">시세 추이</TabsTrigger>
           <TabsTrigger value="transactions">실거래가</TabsTrigger>
           <TabsTrigger value="listings">매물</TabsTrigger>
+          <TabsTrigger value="facilities">
+            주변 시설
+            {facilityGroup && Object.values(facilityGroup.counts).reduce((a, b) => a + b, 0) > 0 && (
+              <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
+                {Object.values(facilityGroup.counts).reduce((a, b) => a + b, 0)}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="areas">
@@ -288,6 +298,10 @@ export default function ComplexDetailPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="facilities">
+          <FacilitiesPanel group={facilityGroup} />
         </TabsContent>
 
         <TabsContent value="listings">

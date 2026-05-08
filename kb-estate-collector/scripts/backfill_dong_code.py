@@ -24,20 +24,24 @@ from src.models.complex import Complex
 from src.services.complex_discovery import _DiscoveryConnector
 
 
-async def fetch_dong(connector, kb_complex_id: str) -> tuple[str | None, str | None]:
+async def fetch_detail(connector, kb_complex_id: str) -> dict:
+    """COMPLEX_DETAIL 응답에서 dong_code/dong_name/lat/lng 추출."""
     try:
         data = await connector._fetch_via_http(
             COMPLEX_DETAIL,
             {"단지기본일련번호": kb_complex_id, "물건종류": "01"},
         )
         body = data.get("dataBody", {}).get("data", {})
-        dong_code = body.get("법정동코드") or body.get("dongCd")
-        dong_name = body.get("읍면동명") or body.get("법정동명") or body.get("dongNm")
-        return (str(dong_code) if dong_code else None,
-                dong_name if dong_name else None)
+        out = {
+            "dong_code": body.get("법정동코드") or body.get("dongCd"),
+            "dong_name": body.get("읍면동명") or body.get("법정동명") or body.get("dongNm"),
+            "lat": body.get("wgs84위도") or body.get("위도"),
+            "lng": body.get("wgs84경도") or body.get("경도"),
+        }
+        return out
     except Exception as e:
         print(f"  [error] kb_complex_id={kb_complex_id}: {e}")
-        return None, None
+        return {}
 
 
 async def main():
@@ -49,9 +53,10 @@ async def main():
 
     db = SessionLocal()
     try:
+        from sqlalchemy import or_
         q = db.query(Complex).filter(
-            Complex.dong_code.is_(None),
             Complex.kb_complex_id.isnot(None),
+            or_(Complex.dong_code.is_(None), Complex.lat.is_(None)),
         )
         if args.region:
             q = q.filter(Complex.region_code == args.region)
@@ -68,13 +73,21 @@ async def main():
         connector = _DiscoveryConnector(name="backfill", rate_limit_per_minute=args.rate)
         ok = fail = 0
         for i, c in enumerate(targets, 1):
-            dc, dn = await fetch_dong(connector, c.kb_complex_id)
-            if dc:
-                c.dong_code = dc
-                c.dong_name = dn
+            d = await fetch_detail(connector, c.kb_complex_id)
+            if d.get("dong_code") or d.get("lat"):
+                if d.get("dong_code"):
+                    c.dong_code = str(d["dong_code"])
+                if d.get("dong_name"):
+                    c.dong_name = d["dong_name"]
+                if d.get("lat"):
+                    try: c.lat = float(d["lat"])
+                    except (ValueError, TypeError): pass
+                if d.get("lng"):
+                    try: c.lng = float(d["lng"])
+                    except (ValueError, TypeError): pass
                 ok += 1
                 if i % 10 == 0 or i <= 5:
-                    print(f"  [{i}/{total}] {c.name} → {dc} {dn}")
+                    print(f"  [{i}/{total}] {c.name} → dong={d.get('dong_code')} ({d.get('lat')},{d.get('lng')})")
                 if i % 20 == 0:
                     db.commit()
             else:

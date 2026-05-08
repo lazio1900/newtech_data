@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react"
-import { Link } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { Card, CardContent } from "@/components/ui/card"
 import {
   Table,
@@ -19,6 +19,7 @@ import { formatDateTime, formatDuration } from "@/lib/format"
 
 export default function RunListPage() {
   const { data: runs, isLoading } = useRuns({ limit: 1000 })
+  const navigate = useNavigate()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
@@ -54,14 +55,13 @@ export default function RunListPage() {
               </TableHeader>
               <TableBody>
                 {paged.map((run) => (
-                  <TableRow key={run.id} className="cursor-pointer hover:bg-accent">
-                    <TableCell>
-                      <Link
-                        to={`/runs/${run.id}`}
-                        className="font-medium text-primary hover:underline"
-                      >
-                        #{run.id}
-                      </Link>
+                  <TableRow
+                    key={run.id}
+                    className="cursor-pointer hover:bg-accent"
+                    onClick={() => navigate(`/runs/${run.id}`)}
+                  >
+                    <TableCell className="font-medium text-primary">
+                      #{run.id}
                     </TableCell>
                     <TableCell className="max-w-[200px] truncate text-sm">
                       {run.target_summary || (

@@ -9,6 +9,24 @@ export function useBatches() {
   })
 }
 
+export function useSigunguBatches(sidoCode: string | null) {
+  return useQuery({
+    queryKey: ["batches", "sigungu", sidoCode],
+    queryFn: () => batchesApi.listSigungu(sidoCode!),
+    enabled: !!sidoCode,
+    refetchInterval: 15_000,
+  })
+}
+
+export function useDongBatches(regionCode: string | null) {
+  return useQuery({
+    queryKey: ["batches", "dong", regionCode],
+    queryFn: () => batchesApi.listDong(regionCode!),
+    enabled: !!regionCode,
+    refetchInterval: 15_000,
+  })
+}
+
 export function useRunBatch() {
   const qc = useQueryClient()
   return useMutation({

@@ -1,6 +1,9 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
-import { Play, Settings, Loader2, CalendarClock } from "lucide-react"
+import { Play, Settings, Loader2, CalendarClock, ChevronRight, ChevronDown } from "lucide-react"
+import { SigunguSubRows } from "./BatchSubRows"
+import { batchesApi } from "@/api/batches"
+void batchesApi  // scoped schedule 다이얼로그는 후속 작업, 호출 시 사용
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -55,9 +58,11 @@ export default function BatchSettingsPage() {
   const scheduleMutation = useUpdateBatchSchedule()
 
   const [scheduleTarget, setScheduleTarget] = useState<Batch | null>(null)
+  // scoped 스케줄 — 다이얼로그 후속 작업 (지금은 토스트로만 안내)
   const [runningCodes, setRunningCodes] = useState<Set<string>>(new Set())
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set())
   const [batchRunning, setBatchRunning] = useState(false)
+  const [expandedSido, setExpandedSido] = useState<string | null>(null)
 
   // 시차 스케줄 다이얼로그
   const [showStagger, setShowStagger] = useState(false)
@@ -256,12 +261,11 @@ export default function BatchSettingsPage() {
                     const lastRun = batch.last_runs[0]
                     const isRunning = runningCodes.has(batch.sido_code)
                     const hasComplexes = batch.complex_count > 0
+                    const isExpanded = expandedSido === batch.sido_code
 
                     return (
-                      <TableRow
-                        key={batch.sido_code}
-                        className={hasComplexes ? "" : "opacity-50"}
-                      >
+                      <Fragment key={batch.sido_code}>
+                      <TableRow className={hasComplexes ? "" : "opacity-50"}>
                         {/* 체크박스 */}
                         <TableCell>
                           <Checkbox
@@ -271,9 +275,20 @@ export default function BatchSettingsPage() {
                           />
                         </TableCell>
 
-                        {/* 시/도 */}
+                        {/* 시/도 (▶/▼ 토글) */}
                         <TableCell className="font-medium">
-                          {batch.sido_name}
+                          <button
+                            onClick={() =>
+                              setExpandedSido(isExpanded ? null : batch.sido_code)
+                            }
+                            disabled={!hasComplexes}
+                            className="inline-flex items-center gap-1 hover:text-primary disabled:opacity-50"
+                          >
+                            {isExpanded
+                              ? <ChevronDown className="h-3 w-3" />
+                              : <ChevronRight className="h-3 w-3" />}
+                            {batch.sido_name}
+                          </button>
                         </TableCell>
 
                         {/* 단지 수 */}
@@ -403,6 +418,15 @@ export default function BatchSettingsPage() {
                           </Button>
                         </TableCell>
                       </TableRow>
+                      {isExpanded && (
+                        <SigunguSubRows
+                          sidoCode={batch.sido_code}
+                          onScheduleClick={(_scope, _code, name) =>
+                            toast.info(`${name} 단위 스케줄 설정은 곧 지원됩니다`)
+                          }
+                        />
+                      )}
+                      </Fragment>
                     )
                   })}
                 </TableBody>

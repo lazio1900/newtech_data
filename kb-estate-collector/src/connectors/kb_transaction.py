@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import logging
 
 from src.connectors.kb_base import KBBaseConnector
-from src.connectors.kb_endpoints import KBEndpoint, COMPLEX_TRANSACTION
+from src.connectors.kb_endpoints import KBEndpoint, COMPLEX_PRESALE_PRICES
 from src.connectors.base import ParserError
 
 logger = logging.getLogger(__name__)
@@ -30,21 +30,29 @@ class KBTransactionConnector(KBBaseConnector):
         )
 
     def _build_http_params(self, **kwargs) -> Tuple[KBEndpoint, dict]:
-        """실거래가 API 직접 호출용 파라미터 빌드"""
+        """실거래가 API 파라미터 빌드 — preSalePrices endpoint.
+
+        거래구분: 1=매매, 2=전세, 3=월세, 0=전체. 매매만 우선.
+        페이지갯수 50 — 보통 한 면적당 매매 거래가 수십건이므로 충분.
+        """
         complex_id = kwargs["complex_id"]
         area_id = kwargs.get("area_id")
         kb_complex_id = self._resolve_kb_complex_id(complex_id)
 
         params = {
             "단지기본일련번호": kb_complex_id,
-            "거래유형": "1",  # 1=매매
+            "거래구분": "1",  # 1=매매
+            "면적그룹여부": "0",
+            "현재페이지": "1",
+            "첫페이지갯수": "50",
+            "페이지갯수": "50",
         }
         if area_id:
             from src.models.complex import Area
             area_obj = self.db.query(Area).get(area_id)
             if area_obj and area_obj.kb_area_code:
                 params["면적일련번호"] = area_obj.kb_area_code
-        return (COMPLEX_TRANSACTION, params)
+        return (COMPLEX_PRESALE_PRICES, params)
 
     def _build_browser_config(self, **kwargs) -> Tuple[str, str, Optional[Callable]]:
         """실거래가 브라우저 폴백 설정"""
@@ -75,76 +83,93 @@ class KBTransactionConnector(KBBaseConnector):
         return (page_url, api_pattern, interact)
 
     def parse(self, raw_data: Any) -> List[Dict[str, Any]]:
-        """
-        KB 실거래가 응답 파싱.
+        """KB preSalePrices 응답 파싱.
 
-        응답 구조 (API 디스커버리 후 확정 필요):
+        응답 구조:
         {
             "dataBody": {
                 "data": {
-                    "dealList": [
+                    "dataList": [
                         {
-                            "dealDate": "20241215",
-                            "dealAmt": "50,000",       # 만원
-                            "excArea": "84.50",
-                            "floor": "10",
-                            "cancelYn": "N",
-                        },
-                        ...
+                            "계약년월일": "20260401",
+                            "물건거래구분": "1",          # 1=매매
+                            "매매실거래금액": 70000,      # 만원
+                            "해당층수": "6",
+                            "전용면적": "84",
+                            "계약취소여부": "0",
+                            "수집일련번호": 12345,         # unique key
+                            ...
+                        }
                     ]
                 }
             }
         }
         """
         try:
-            # 응답 구조 탐색
             data = raw_data
             if isinstance(data, dict):
                 data = data.get("dataBody", data)
                 if isinstance(data, dict):
                     data = data.get("data", data)
 
-            # 거래 목록 추출 (여러 후보 키)
             deal_list = []
             if isinstance(data, dict):
-                for key in ["dealList", "list", "items", "tradeList", "거래목록"]:
-                    if key in data and isinstance(data[key], list):
-                        deal_list = data[key]
-                        break
+                deal_list = data.get("dataList") or []
             elif isinstance(data, list):
                 deal_list = data
 
-            parsed = []
+            parsed: List[Dict[str, Any]] = []
             for item in deal_list:
                 if not isinstance(item, dict):
                     continue
 
-                # 계약일
-                contract_date = self._extract_date(item)
+                # 매매만 (거래구분=1) — 안전 필터
+                if str(item.get("물건거래구분", "")) != "1":
+                    continue
 
-                # 거래가
-                price = self._extract_transaction_price(item)
+                # 계약일 — "20260401" → "2026-04-01"
+                d = str(item.get("계약년월일") or "")
+                if len(d) != 8 or not d.isdigit():
+                    continue
+                contract_date = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
 
-                # 전용면적
-                exclusive_m2 = self._extract_float(
-                    item, ["excArea", "exclusive_m2", "전용면적", "exclusiveArea"]
-                )
+                # 매매실거래금액 (만원 → 원)
+                amt_man = item.get("매매실거래금액")
+                if amt_man is None:
+                    continue
+                try:
+                    price = int(float(amt_man)) * 10000
+                except (ValueError, TypeError):
+                    continue
+
+                # 전용면적 (str → float)
+                exclusive_m2 = 0.0
+                try:
+                    if item.get("전용면적") is not None:
+                        exclusive_m2 = float(item["전용면적"])
+                except (ValueError, TypeError):
+                    pass
 
                 # 층
-                floor = self._extract_int(item, ["floor", "층", "floorInfo"])
+                floor = None
+                try:
+                    f_str = item.get("해당층수")
+                    if f_str is not None and str(f_str).strip():
+                        floor = int(float(f_str))
+                except (ValueError, TypeError):
+                    pass
 
-                # 해제 여부
-                is_cancelled = self._extract_cancel_status(item)
+                is_cancelled = str(item.get("계약취소여부", "0")) == "1"
 
-                if contract_date and price:
-                    parsed.append({
-                        "contract_date": contract_date,
-                        "price": price,
-                        "exclusive_m2": exclusive_m2 or 0.0,
-                        "floor": floor,
-                        "is_cancelled": is_cancelled,
-                        "source": "kb",
-                    })
+                parsed.append({
+                    "contract_date": contract_date,
+                    "price": price,
+                    "exclusive_m2": exclusive_m2,
+                    "floor": floor,
+                    "is_cancelled": is_cancelled,
+                    "source": "kb",
+                    "external_id": str(item.get("수집일련번호") or ""),
+                })
 
             return parsed
 

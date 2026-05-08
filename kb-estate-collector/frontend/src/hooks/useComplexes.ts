@@ -8,6 +8,7 @@ export function useComplexes(params?: {
   limit?: number
   search?: string
   region_code?: string
+  dong_code?: string
 }) {
   return useQuery({
     queryKey: ["complexes", params],
@@ -23,10 +24,26 @@ export function useRegionCounts() {
   })
 }
 
+export function useDongCounts(regionCode: string | null | undefined) {
+  return useQuery({
+    queryKey: ["complexes", "dongCounts", regionCode],
+    queryFn: () => complexesApi.dongCounts(regionCode!),
+    enabled: !!regionCode,
+  })
+}
+
 export function useComplex(id: number) {
   return useQuery({
     queryKey: ["complexes", id],
     queryFn: () => complexesApi.get(id),
+    enabled: id > 0,
+  })
+}
+
+export function useComplexFacilities(id: number) {
+  return useQuery({
+    queryKey: ["complexes", id, "facilities"],
+    queryFn: () => complexesApi.facilities(id),
     enabled: id > 0,
   })
 }

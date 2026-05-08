@@ -6,7 +6,8 @@ from sqlalchemy import func
 from pydantic import BaseModel
 
 from src.core.database import get_db
-from src.models import Complex, Area, PriorityLevel
+from src.core.time import now_kst
+from src.models import Complex, Area, PriorityLevel, ComplexFacility
 from src.models.crawl import CrawlRun, CrawlTask, RunStatus
 
 router = APIRouter()
@@ -72,6 +73,7 @@ def list_complexes(
     is_active: Optional[bool] = None,
     search: Optional[str] = None,
     region_code: Optional[str] = None,
+    dong_code: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     """단지 목록 조회 (서버 사이드 페이지네이션)"""
@@ -80,7 +82,9 @@ def list_complexes(
     if is_active is not None:
         query = query.filter(Complex.is_active == is_active)
 
-    if region_code:
+    if dong_code:
+        query = query.filter(Complex.dong_code == dong_code)
+    elif region_code:
         query = query.filter(Complex.region_code.like(f"{region_code}%"))
 
     if search:
@@ -113,6 +117,25 @@ def get_region_counts(db: Session = Depends(get_db)):
             region[key] = region.get(key, 0) + 1
 
     return {"sido_counts": sido, "region_counts": region}
+
+
+@router.get("/dong-counts")
+def get_dong_counts(region_code: str, db: Session = Depends(get_db)):
+    """시군구 내 읍면동별 단지 수 조회 (시군구 선택 후 호출)."""
+    rows = (
+        db.query(Complex.dong_code, Complex.dong_name, func.count(Complex.id))
+        .filter(Complex.region_code == region_code)
+        .filter(Complex.dong_code.isnot(None))
+        .group_by(Complex.dong_code, Complex.dong_name)
+        .order_by(func.count(Complex.id).desc())
+        .all()
+    )
+    return {
+        "items": [
+            {"dong_code": dc, "dong_name": dn, "count": cnt}
+            for dc, dn, cnt in rows
+        ],
+    }
 
 
 @router.get("/last-runs")
@@ -158,14 +181,59 @@ def get_complex_last_runs(db: Session = Depends(get_db)):
 def get_complex(complex_id: int, db: Session = Depends(get_db)):
     """단지 상세 조회"""
     complex = db.query(Complex).filter(Complex.id == complex_id).first()
-    
+
     if not complex:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Complex not found"
         )
-    
+
     return complex
+
+
+class FacilitySchema(BaseModel):
+    id: int
+    facility_type: str
+    sub_type: Optional[str] = None
+    name: str
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    distance_m: Optional[int] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    fetched_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FacilityGroupResponse(BaseModel):
+    """facility_type 별 그룹화된 응답."""
+    counts: Dict[str, int]
+    items: Dict[str, List[FacilitySchema]]
+
+
+@router.get("/{complex_id}/facilities", response_model=FacilityGroupResponse)
+def get_complex_facilities(complex_id: int, db: Session = Depends(get_db)):
+    """단지 주변 시설 (학군/지하철/병원/공원) — facility_type 별 그룹화."""
+    if not db.query(Complex.id).filter(Complex.id == complex_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Complex not found"
+        )
+
+    rows = (
+        db.query(ComplexFacility)
+        .filter(ComplexFacility.complex_id == complex_id)
+        .order_by(ComplexFacility.facility_type, ComplexFacility.distance_m.nulls_last())
+        .all()
+    )
+
+    items: Dict[str, List[FacilitySchema]] = {}
+    counts: Dict[str, int] = {}
+    for r in rows:
+        items.setdefault(r.facility_type, []).append(FacilitySchema.model_validate(r))
+        counts[r.facility_type] = counts.get(r.facility_type, 0) + 1
+    return FacilityGroupResponse(counts=counts, items=items)
 
 
 @router.post("/", response_model=ComplexSchema, status_code=status.HTTP_201_CREATED)
@@ -239,7 +307,7 @@ def collect_complex(complex_id: int, db: Session = Depends(get_db)):
     run = CrawlRun(
         job_id=None,
         status=RunStatus.PENDING,
-        started_at=datetime.utcnow(),
+        started_at=now_kst(),
     )
     db.add(run)
     db.commit()
@@ -288,7 +356,7 @@ def batch_collect_complexes(
     run = CrawlRun(
         job_id=None,
         status=RunStatus.PENDING,
-        started_at=datetime.utcnow(),
+        started_at=now_kst(),
     )
     db.add(run)
     db.commit()

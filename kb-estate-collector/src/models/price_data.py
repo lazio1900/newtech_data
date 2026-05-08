@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Float, Dat
 from sqlalchemy.orm import relationship
 import enum
 from src.core.database import Base
+from src.core.time import now_kst
 
 
 class ListingStatus(str, enum.Enum):
@@ -34,7 +35,7 @@ class KBPrice(Base):
     payload_hash = Column(String(64), nullable=True, comment="원문 해시")
     parser_version = Column(String(20), nullable=True, comment="파서 버전")
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_kst)
     
     # Relationships
     complex = relationship("Complex", back_populates="kb_prices")
@@ -69,7 +70,7 @@ class Transaction(Base):
     source_id = Column(String(100), nullable=True, comment="원천 ID")
     fetched_at = Column(DateTime, nullable=False, comment="수집 시각")
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_kst)
     
     # Relationships
     complex = relationship("Complex", back_populates="transactions")
@@ -104,8 +105,8 @@ class Listing(Base):
     fetched_at = Column(DateTime, nullable=False, comment="수집 시각")
     last_seen_at = Column(DateTime, nullable=False, comment="마지막 확인 시각")
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_kst)
+    updated_at = Column(DateTime, default=now_kst, onupdate=now_kst)
     
     # Relationships
     complex = relationship("Complex", back_populates="listings")

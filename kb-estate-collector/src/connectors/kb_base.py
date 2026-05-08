@@ -92,16 +92,42 @@ class KBBaseConnector(BaseConnector):
             )
         return self._http_client
 
-    async def _fetch_via_http(self, endpoint: KBEndpoint, params: dict) -> dict:
-        """httpx를 사용한 직접 API 호출"""
-        client = await self._get_http_client()
+    # transient 네트워크 오류 — 지수 백오프로 자동 재시도
+    _TRANSIENT_EXC = (
+        httpx.RemoteProtocolError,
+        httpx.ReadTimeout,
+        httpx.ConnectTimeout,
+        httpx.ConnectError,
+        httpx.WriteError,
+        httpx.PoolTimeout,
+    )
 
+    async def _fetch_via_http(self, endpoint: KBEndpoint, params: dict,
+                              max_retries: int = 3) -> dict:
+        """httpx 직접 API 호출 — transient 오류 시 지수백오프 재시도(0.5/1/2초)."""
+        client = await self._get_http_client()
         logger.debug(f"{self.name}: HTTP {endpoint.method} {endpoint.url}")
 
-        if endpoint.method == "GET":
-            response = await client.get(endpoint.url, params=params)
-        else:
-            response = await client.post(endpoint.url, json=params)
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                if endpoint.method == "GET":
+                    response = await client.get(endpoint.url, params=params)
+                else:
+                    response = await client.post(endpoint.url, json=params)
+                break  # success — exit retry loop
+            except self._TRANSIENT_EXC as e:
+                last_exc = e
+                if attempt == max_retries:
+                    raise NetworkError(
+                        f"transient HTTP error after {max_retries} attempts: {e}"
+                    )
+                wait = 0.5 * (2 ** (attempt - 1))
+                logger.warning(
+                    f"{self.name}: {endpoint.method} {endpoint.url} transient '{e}', "
+                    f"retry {attempt}/{max_retries} in {wait}s"
+                )
+                await asyncio.sleep(wait)
 
         if response.status_code == 200:
             return response.json()

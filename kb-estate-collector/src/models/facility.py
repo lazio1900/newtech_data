@@ -4,6 +4,7 @@
 facility_type 으로 구분하고 sub_type 으로 세분 (e.g., 학교과정 / 지하철호선).
 """
 from datetime import datetime
+from src.core.time import now_kst
 
 from sqlalchemy import (
     Column,
@@ -48,9 +49,9 @@ class ComplexFacility(Base):
     meta = Column(JSONB, nullable=True, comment="원본 응답 (총학생수/노선번호/시설등급 등)")
 
     # 메타데이터
-    fetched_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    fetched_at = Column(DateTime, nullable=False, default=now_kst)
+    created_at = Column(DateTime, nullable=False, default=now_kst)
+    updated_at = Column(DateTime, nullable=False, default=now_kst, onupdate=now_kst)
 
     complex = relationship("Complex")
 

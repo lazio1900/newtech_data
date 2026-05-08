@@ -7,7 +7,7 @@ Playwright를 사용하여 kbland.kr을 탐색하고,
 import asyncio
 import json
 import logging
-from datetime import datetime
+from src.core.time import now_kst
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse, parse_qs
 
@@ -38,7 +38,7 @@ class CapturedRequest:
         self.response_headers: Dict[str, str] = {}
         self.response_body: Optional[Any] = None
         self.response_body_preview: Optional[str] = None
-        self.timestamp: str = datetime.utcnow().isoformat()
+        self.timestamp: str = now_kst().isoformat()
         self.category: str = "unknown"
 
     def to_dict(self) -> dict:
@@ -261,7 +261,7 @@ class KBApiDiscovery:
             unique_endpoints[key]["hit_count"] += 1
 
         return {
-            "discovery_timestamp": datetime.utcnow().isoformat(),
+            "discovery_timestamp": now_kst().isoformat(),
             "total_requests_captured": len(self._captured),
             "unique_endpoints": len(unique_endpoints),
             "endpoints_by_category": categorized,

@@ -57,3 +57,21 @@ export interface RegionCounts {
   sido_counts: Record<string, number>
   region_counts: Record<string, number>
 }
+
+export interface Facility {
+  id: number
+  facility_type: string
+  sub_type: string | null
+  name: string
+  address: string | null
+  phone: string | null
+  distance_m: number | null
+  lat: number | null
+  lng: number | null
+  fetched_at: string | null
+}
+
+export interface FacilityGroup {
+  counts: Record<string, number>
+  items: Record<string, Facility[]>
+}

@@ -10,7 +10,6 @@ KB부동산 데이터 수집 태스크:
 """
 import asyncio
 import json
-from datetime import datetime
 from typing import Dict, Any, List, Optional
 import logging
 
@@ -19,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from src.workers.celery_app import celery_app
 from src.core.database import SessionLocal
+from src.core.time import now_kst
 from src.models import (
     CrawlRun, CrawlTask, Complex, Area,
     KBPrice, Transaction, Listing, ListingStatus,
@@ -126,57 +126,98 @@ def ensure_complex_detail(db: Session, complex_obj: Complex):
         logger.warning(f"Complex {complex_obj.id}: detail fetch failed: {e}")
 
 
-def ensure_complex_facilities(db: Session, complex_obj: Complex) -> int:
-    """단지 주변 학군(어린이집/유치원/초/중/고)을 KB API에서 수집해 저장.
+# 학교과정별 거리 cutoff (m) — 너무 멀면 학군에 무의미
+SCHOOL_DISTANCE_CUTOFF: Dict[str, int] = {
+    "kindergarten": 500,
+    "preschool": 500,
+    "elementary": 1000,
+    "middle": 2000,
+    "high": 2000,
+}
 
-    이미 학군 데이터가 있으면 스킵. 신규 단지 또는 facility 비어있는 단지만 수집.
+
+def ensure_complex_facilities(db: Session, complex_obj: Complex) -> int:
+    """단지 주변 시설(학군/지하철/병원/공원)을 KB API + OSM 에서 수집해 저장.
+
+    이미 facility 데이터가 있으면 스킵. 신규 단지 또는 facility 비어있는 단지만 수집.
+    학교는 sub_type 별 거리 cutoff 적용 (어린이집/유치원 500m, 초 1km, 중/고 2km).
     반환: 저장된 facility row 수.
     """
     if not complex_obj.kb_complex_id:
         return 0
 
-    # 이미 학군 데이터 있으면 스킵
-    existing = (
+    # 좌표 기반 카테고리(subway/hospital/park) 가 하나라도 있으면 정상 수집된 것으로 간주.
+    # 학군만 있는 경우(옛 코드 시점 잔재)는 보강 대상 — 학군까지 모두 비우고 재수집해
+    # 거리 cutoff 도 재적용한다.
+    has_coord_based = (
         db.query(ComplexFacility.id)
         .filter(
             ComplexFacility.complex_id == complex_obj.id,
-            ComplexFacility.facility_type == "school",
+            ComplexFacility.facility_type.in_(["subway", "hospital", "park"]),
         )
         .first()
     )
-    if existing:
+    if has_coord_based:
         return 0
 
-    try:
-        from src.connectors.kb_school import KBSchoolConnector
+    # 학군만 잔존하면 삭제 후 fetch_all 로 통합 재수집
+    db.query(ComplexFacility).filter(
+        ComplexFacility.complex_id == complex_obj.id
+    ).delete(synchronize_session=False)
+    db.flush()
 
-        connector = KBSchoolConnector(rate_limit_per_minute=30)
-        result = run_async(connector.fetch_all(complex_obj.kb_complex_id))
+    try:
+        from src.connectors.kb_facility import KBFacilityConnector
+
+        connector = KBFacilityConnector(rate_limit_per_minute=30)
+        items = run_async(
+            connector.fetch_all(
+                complex_obj.kb_complex_id,
+                lat=complex_obj.lat,
+                lng=complex_obj.lng,
+            )
+        )
+
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
 
         saved = 0
-        now = datetime.utcnow()
-        for sub_type, items in result.items():
-            for item in items:
-                fac = ComplexFacility(
-                    complex_id=complex_obj.id,
-                    facility_type="school",
-                    sub_type=sub_type,
-                    external_id=item.get("external_id"),
-                    name=item.get("name"),
-                    address=item.get("address"),
-                    phone=item.get("phone"),
-                    distance_m=item.get("distance_m"),
-                    lat=item.get("lat"),
-                    lng=item.get("lng"),
-                    meta=item.get("meta"),
-                    fetched_at=now,
-                )
-                db.add(fac)
+        skipped_far = 0
+        now = now_kst()
+        # KB/OSM 응답에 (complex_id, facility_type, external_id) 동일한 row 가
+        # 중복 포함되는 경우가 있어 ON CONFLICT DO NOTHING 으로 안전 INSERT.
+        for item in items:
+            if item["facility_type"] == "school":
+                cutoff = SCHOOL_DISTANCE_CUTOFF.get(item.get("sub_type") or "")
+                if cutoff and item.get("distance_m") is not None and item["distance_m"] > cutoff:
+                    skipped_far += 1
+                    continue
+
+            stmt = pg_insert(ComplexFacility).values(
+                complex_id=complex_obj.id,
+                facility_type=item["facility_type"],
+                sub_type=item.get("sub_type"),
+                external_id=item.get("external_id"),
+                name=item.get("name"),
+                address=item.get("address"),
+                phone=item.get("phone"),
+                distance_m=item.get("distance_m"),
+                lat=item.get("lat"),
+                lng=item.get("lng"),
+                meta=item.get("meta"),
+                fetched_at=now,
+            ).on_conflict_do_nothing(
+                index_elements=["complex_id", "facility_type", "external_id"],
+            )
+            res = db.execute(stmt)
+            if res.rowcount and res.rowcount > 0:
                 saved += 1
 
         db.flush()
+        from collections import Counter
+        cat = Counter(it["facility_type"] for it in items[:saved + skipped_far])
         logger.info(
-            f"Complex {complex_obj.id} ({complex_obj.name}): facilities collected — school {saved}"
+            f"Complex {complex_obj.id} ({complex_obj.name}): facilities collected — "
+            f"{dict(cat)} (saved={saved}, skipped_far={skipped_far})"
         )
         return saved
     except Exception as e:
@@ -307,7 +348,7 @@ def _finalize_run_if_complete(db: Session, run_id: int):
     run.success_count = success
     run.failed_count = failed
     run.skipped_count = skipped
-    run.finished_at = datetime.utcnow()
+    run.finished_at = now_kst()
 
     if failed == 0:
         run.status = RunStatus.SUCCESS
@@ -359,7 +400,7 @@ def collect_kb_price_task(
         run_id=run_id,
         task_key=task_key,
         status=TaskStatus.RUNNING,
-        started_at=datetime.utcnow(),
+        started_at=now_kst(),
     )
     db.add(task_record)
     db.commit()
@@ -380,7 +421,7 @@ def collect_kb_price_task(
                 existing.general_price = item["general_price"]
                 existing.high_avg_price = item["high_avg_price"]
                 existing.low_avg_price = item["low_avg_price"]
-                existing.fetched_at = datetime.utcnow()
+                existing.fetched_at = now_kst()
                 existing.parser_version = item.get("parser_version")
             else:
                 db.add(KBPrice(
@@ -391,7 +432,7 @@ def collect_kb_price_task(
                     high_avg_price=item["high_avg_price"],
                     low_avg_price=item["low_avg_price"],
                     source=item["source"],
-                    fetched_at=datetime.utcnow(),
+                    fetched_at=now_kst(),
                     parser_version=item.get("parser_version"),
                 ))
             items_saved += 1
@@ -418,7 +459,7 @@ def collect_kb_price_task(
                         exclusive_m2=exclusive_m2,
                         floor=tx_data.get("floor"),
                         source="kb",
-                        fetched_at=datetime.utcnow(),
+                        fetched_at=now_kst(),
                     ))
                     items_saved += 1
 
@@ -441,7 +482,7 @@ def collect_kb_price_task(
         return {"status": "failed", "error": str(e)}
 
     finally:
-        task_record.finished_at = datetime.utcnow()
+        task_record.finished_at = now_kst()
         try:
             db.commit()
         except Exception:
@@ -458,27 +499,31 @@ def collect_kb_transaction_task(
     self,
     run_id: int,
     complex_id: int,
+    area_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """단일 단지에 대한 KB 실거래가 수집 태스크"""
+    """단일 단지(면적)에 대한 KB 실거래가 수집. preSalePrices 사용."""
     db = self.db
-    task_key = f"kb_transaction_{complex_id}"
+    task_key = f"kb_transaction_{complex_id}_{area_id or 'all'}"
 
     task_record = CrawlTask(
         run_id=run_id,
         task_key=task_key,
         status=TaskStatus.RUNNING,
-        started_at=datetime.utcnow(),
+        started_at=now_kst(),
     )
     db.add(task_record)
     db.commit()
 
     try:
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
         connector = KBTransactionConnector(db_session=db)
-        result = connector.collect(complex_id=complex_id)
+        result = connector.collect(complex_id=complex_id, area_id=area_id)
 
         saved_count = 0
         for item in result["items"]:
-            transaction = Transaction(
+            # idx_transaction_unique 제약 — 동일 거래 중복 INSERT 방지
+            stmt = pg_insert(Transaction).values(
                 complex_id=complex_id,
                 contract_date=item["contract_date"],
                 price=item["price"],
@@ -486,10 +531,16 @@ def collect_kb_transaction_task(
                 floor=item.get("floor"),
                 is_cancelled=item.get("is_cancelled", False),
                 source="kb",
-                fetched_at=datetime.utcnow(),
+                source_id=item.get("external_id"),
+                fetched_at=now_kst(),
+            ).on_conflict_do_nothing(
+                index_elements=[
+                    "complex_id", "contract_date", "price", "exclusive_m2", "floor",
+                ]
             )
-            db.merge(transaction)
-            saved_count += 1
+            res = db.execute(stmt)
+            if res.rowcount and res.rowcount > 0:
+                saved_count += 1
 
         db.commit()
         task_record.status = TaskStatus.SUCCESS
@@ -510,7 +561,7 @@ def collect_kb_transaction_task(
         return {"status": "failed", "error": str(e)}
 
     finally:
-        task_record.finished_at = datetime.utcnow()
+        task_record.finished_at = now_kst()
         try:
             db.commit()
         except Exception:
@@ -536,7 +587,7 @@ def collect_kb_listing_task(
         run_id=run_id,
         task_key=task_key,
         status=TaskStatus.RUNNING,
-        started_at=datetime.utcnow(),
+        started_at=now_kst(),
     )
     db.add(task_record)
     db.commit()
@@ -559,8 +610,8 @@ def collect_kb_listing_task(
             if existing:
                 existing.ask_price = item["ask_price"]
                 existing.status = ListingStatus.ACTIVE
-                existing.fetched_at = datetime.utcnow()
-                existing.last_seen_at = datetime.utcnow()
+                existing.fetched_at = now_kst()
+                existing.last_seen_at = now_kst()
             else:
                 listing = Listing(
                     complex_id=complex_id,
@@ -571,8 +622,8 @@ def collect_kb_listing_task(
                     status=ListingStatus.ACTIVE,
                     posted_at=item.get("posted_at"),
                     source="kb",
-                    fetched_at=datetime.utcnow(),
-                    last_seen_at=datetime.utcnow(),
+                    fetched_at=now_kst(),
+                    last_seen_at=now_kst(),
                 )
                 db.add(listing)
             saved_count += 1
@@ -586,7 +637,7 @@ def collect_kb_listing_task(
             ).all()
             for stale in stale_listings:
                 stale.status = ListingStatus.REMOVED
-                stale.status_updated_at = datetime.utcnow()
+                stale.status_updated_at = now_kst()
 
         db.commit()
         task_record.status = TaskStatus.SUCCESS
@@ -607,7 +658,7 @@ def collect_kb_listing_task(
         return {"status": "failed", "error": str(e)}
 
     finally:
-        task_record.finished_at = datetime.utcnow()
+        task_record.finished_at = now_kst()
         try:
             db.commit()
         except Exception:
@@ -632,12 +683,12 @@ def run_kb_collection(
     if run_id:
         run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
         run.status = RunStatus.RUNNING
-        run.started_at = datetime.utcnow()
+        run.started_at = now_kst()
     else:
         run = CrawlRun(
             job_id=job_id,
             status=RunStatus.RUNNING,
-            started_at=datetime.utcnow(),
+            started_at=now_kst(),
         )
         db.add(run)
     db.commit()
@@ -663,9 +714,15 @@ def run_kb_collection(
             # 면적이 없으면 KB API에서 자동 조회
             areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
 
-            # 시세 (면적별) — BasePrcInfoNew에서 시세 + 최근실거래가 동시 추출
+            # 시세 + 실거래가 (면적별)
             for area in areas:
                 collect_kb_price_task.delay(
+                    run_id=run.id,
+                    complex_id=complex_obj.id,
+                    area_id=area.id,
+                )
+                total_tasks += 1
+                collect_kb_transaction_task.delay(
                     run_id=run.id,
                     complex_id=complex_obj.id,
                     area_id=area.id,
@@ -689,7 +746,7 @@ def run_kb_collection(
     except Exception as e:
         logger.exception(f"Run {run.id} failed: {e}")
         run.status = RunStatus.FAILED
-        run.finished_at = datetime.utcnow()
+        run.finished_at = now_kst()
         db.commit()
         raise
 
@@ -736,7 +793,7 @@ def run_region_collection(
         run = CrawlRun(
             job_id=job_id,
             status=RunStatus.RUNNING,
-            started_at=datetime.utcnow(),
+            started_at=now_kst(),
         )
         db.add(run)
     db.commit()
@@ -756,7 +813,7 @@ def run_region_collection(
     if not complexes:
         logger.warning(f"No active complexes found for region {region_code}")
         run.status = RunStatus.SUCCESS
-        run.finished_at = datetime.utcnow()
+        run.finished_at = now_kst()
         db.commit()
         return {
             "region_code": region_code,
@@ -806,3 +863,133 @@ def run_region_collection(
         "total_tasks": total_tasks,
         "complexes_count": len(complexes),
     }
+
+
+@celery_app.task(base=DatabaseTask, bind=True)
+def run_scheduled_job(self, job_id: int) -> Dict[str, Any]:
+    """celery beat 가 cron 시점에 호출 — CrawlJob 의 target 에 따라 단지들을 모아 수집 trigger.
+
+    target_config 형식:
+      {"sido_code": "11"}        — 시도 단위
+      {"region_code": "11350"}   — 시군구 단위
+      {"dong_code": "1135010500"} — 동 단위
+    """
+    from src.models.crawl import CrawlJob, JobStatus
+
+    db = self.db
+    job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+    if not job or job.status != JobStatus.ACTIVE:
+        logger.info(f"[scheduled_job] {job_id}: skipped (not active)")
+        return {"status": "skipped"}
+
+    try:
+        cfg = json.loads(job.target_config) if job.target_config else {}
+    except (json.JSONDecodeError, TypeError):
+        cfg = {}
+
+    q = db.query(Complex).filter(Complex.is_active.is_(True))
+    if cfg.get("dong_code"):
+        q = q.filter(Complex.dong_code == cfg["dong_code"])
+    elif cfg.get("region_code"):
+        q = q.filter(Complex.region_code == cfg["region_code"])
+    elif cfg.get("sido_code"):
+        q = q.filter(Complex.region_code.like(f"{cfg['sido_code']}%"))
+    else:
+        logger.warning(f"[scheduled_job] {job_id}: invalid target_config {cfg}")
+        return {"status": "invalid"}
+
+    complexes = q.all()
+    if not complexes:
+        logger.info(f"[scheduled_job] {job_id}: no complexes for {cfg}")
+        return {"status": "no_complexes"}
+
+    run = CrawlRun(job_id=job.id, status=RunStatus.PENDING, started_at=now_kst())
+    db.add(run)
+    db.commit()
+
+    target_config = json.dumps({"complex_ids": [c.id for c in complexes]})
+    run_kb_collection.delay(job_id=job.id, run_id=run.id, target_config=target_config)
+    logger.info(f"[scheduled_job] {job_id}: triggered {len(complexes)} complexes (run={run.id})")
+    return {"status": "triggered", "run_id": run.id, "count": len(complexes)}
+
+
+# ─── 좀비 RUNNING task/run 자동 정리 ───────────────────────────────────────────
+# Celery worker SIGSEGV/OOM 등으로 task 가 비정상 종료되면 DB 의 status 가
+# RUNNING/PENDING 인 채로 남는다. 이게 누적되면 통계가 오염되고 finalize 가
+# 안 끝난다. 5분마다 실행해서 일정 시간 이상 멈춰있는 task/run 을 FAILED 처리.
+
+ZOMBIE_TASK_TIMEOUT_MIN = 10   # 10분 이상 RUNNING — 좀비
+ZOMBIE_RUN_TIMEOUT_MIN = 60    # 60분 이상 RUNNING — 좀비 (대규모 수집 고려)
+
+
+@celery_app.task
+def cleanup_zombie_runs() -> Dict[str, Any]:
+    """타임아웃을 넘긴 RUNNING task/run 을 FAILED 로 정리."""
+    from datetime import timedelta
+    db: Session = SessionLocal()
+    try:
+        now = now_kst()
+        task_cutoff = now - timedelta(minutes=ZOMBIE_TASK_TIMEOUT_MIN)
+        run_cutoff = now - timedelta(minutes=ZOMBIE_RUN_TIMEOUT_MIN)
+
+        # 1) 좀비 task: started_at 이 task_cutoff 보다 오래된 RUNNING/PENDING
+        zombie_tasks = (
+            db.query(CrawlTask)
+            .filter(
+                CrawlTask.status.in_([TaskStatus.RUNNING, TaskStatus.PENDING]),
+                CrawlTask.started_at.isnot(None),
+                CrawlTask.started_at < task_cutoff,
+            )
+            .all()
+        )
+        # PENDING 인데 started_at 이 NULL 인 경우는 created_at 기준
+        zombie_pending = (
+            db.query(CrawlTask)
+            .filter(
+                CrawlTask.status == TaskStatus.PENDING,
+                CrawlTask.started_at.is_(None),
+                CrawlTask.created_at < task_cutoff,
+            )
+            .all()
+        )
+        for t in zombie_tasks + zombie_pending:
+            t.status = TaskStatus.FAILED
+            t.error_type = "ZombieTimeout"
+            t.error_message = (
+                f"task stuck in {t.status.value} > {ZOMBIE_TASK_TIMEOUT_MIN}min, "
+                f"likely worker crash"
+            )
+            t.finished_at = now
+
+        # 2) 좀비 run: started_at 이 run_cutoff 보다 오래된 RUNNING
+        zombie_runs = (
+            db.query(CrawlRun)
+            .filter(
+                CrawlRun.status.in_([RunStatus.RUNNING, RunStatus.PENDING]),
+                CrawlRun.started_at.isnot(None),
+                CrawlRun.started_at < run_cutoff,
+            )
+            .all()
+        )
+        for r in zombie_runs:
+            r.status = RunStatus.FAILED
+            r.finished_at = now
+            r.error_summary = (
+                f'{{"reason": "zombie_timeout", "stuck_for_min": '
+                f'{ZOMBIE_RUN_TIMEOUT_MIN}}}'
+            )
+
+        db.commit()
+        result = {
+            "tasks_cleaned": len(zombie_tasks) + len(zombie_pending),
+            "runs_cleaned": len(zombie_runs),
+        }
+        if result["tasks_cleaned"] or result["runs_cleaned"]:
+            logger.warning(f"[cleanup_zombie_runs] {result}")
+        return result
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[cleanup_zombie_runs] failed: {e}")
+        raise
+    finally:
+        db.close()

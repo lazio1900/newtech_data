@@ -5,6 +5,8 @@ import random
 from datetime import datetime
 import logging
 
+from src.core.time import now_kst
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,7 +137,7 @@ class BaseConnector(ABC):
                     'items': items,
                     'metadata': {
                         **raw_result.get('metadata', {}),
-                        'fetched_at': datetime.utcnow().isoformat(),
+                        'fetched_at': now_kst().isoformat(),
                         'connector': self.name,
                         'attempt': attempt + 1,
                     },

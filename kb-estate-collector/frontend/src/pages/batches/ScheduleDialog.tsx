@@ -39,6 +39,11 @@ const HOURS = Array.from({ length: 24 }, (_, i) => ({
   label: `${String(i).padStart(2, "0")}시`,
 }))
 
+const MINUTES = [0, 5, 10, 15, 20, 30, 40, 45, 50].map((m) => ({
+  value: String(m),
+  label: `${String(m).padStart(2, "0")}분`,
+}))
+
 export type Interval = "daily" | "weekly" | "biweekly" | "monthly"
 
 function parseCron(cron: string | null): {
@@ -109,6 +114,7 @@ export default function ScheduleDialog({
   const [interval, setInterval] = useState<Interval>(parsed.interval)
   const [day, setDay] = useState(parsed.day)
   const [hour, setHour] = useState(parsed.hour)
+  const [minute, setMinute] = useState(parsed.minute)
 
   useEffect(() => {
     if (open) {
@@ -116,10 +122,11 @@ export default function ScheduleDialog({
       setInterval(p.interval)
       setDay(p.day)
       setHour(p.hour)
+      setMinute(p.minute)
     }
   }, [open, currentCron])
 
-  const preview = describeSchedule(interval, day, hour)
+  const preview = describeSchedule(interval, day, hour, minute)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -167,21 +174,35 @@ export default function ScheduleDialog({
             </div>
           )}
 
-          {/* 시간 */}
+          {/* 시간 (시 + 분) */}
           <div>
             <label className="mb-1.5 block text-sm font-medium">시간</label>
-            <Select value={hour} onValueChange={setHour}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {HOURS.map((h) => (
-                  <SelectItem key={h.value} value={h.value}>
-                    {h.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex gap-2">
+              <Select value={hour} onValueChange={setHour}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {HOURS.map((h) => (
+                    <SelectItem key={h.value} value={h.value}>
+                      {h.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={minute} onValueChange={setMinute}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MINUTES.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* 미리보기 */}
@@ -212,7 +233,7 @@ export default function ScheduleDialog({
           </Button>
           <Button
             size="sm"
-            onClick={() => onSave(buildCron(interval, day, hour))}
+            onClick={() => onSave(buildCron(interval, day, hour, minute))}
             disabled={loading}
           >
             {loading ? "저장중..." : "저장"}

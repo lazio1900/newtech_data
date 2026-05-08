@@ -1,4 +1,5 @@
 from datetime import datetime
+from src.core.time import now_kst
 from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, ForeignKey, Index, Boolean
 from sqlalchemy.orm import relationship
 import enum
@@ -65,8 +66,8 @@ class CrawlJob(Base):
     status = Column(Enum(JobStatus), default=JobStatus.ACTIVE, comment="작업 상태")
     
     # 메타데이터
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_kst)
+    updated_at = Column(DateTime, default=now_kst, onupdate=now_kst)
     created_by = Column(String(100), nullable=True, comment="생성자")
     
     # Relationships
@@ -99,7 +100,7 @@ class CrawlRun(Base):
     quality_warnings = Column(Text, nullable=True, comment="품질 경고 (JSON)")
     
     # 메타데이터
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_kst)
     triggered_by = Column(String(100), nullable=True, comment="실행 트리거 (user/schedule)")
     
     # Relationships
@@ -139,7 +140,7 @@ class CrawlTask(Base):
     items_saved = Column(Integer, default=0, comment="저장 건수")
     
     # 메타데이터
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_kst)
     
     # Relationships
     run = relationship("CrawlRun", back_populates="tasks")
@@ -171,7 +172,7 @@ class RawPayload(Base):
     size_bytes = Column(Integer, nullable=True, comment="크기 (바이트)")
     compressed = Column(Boolean, default=False, comment="압축 여부")
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_kst)
     
     # Relationships
     task = relationship("CrawlTask", back_populates="raw_payloads")

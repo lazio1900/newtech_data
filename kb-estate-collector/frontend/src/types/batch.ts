@@ -18,3 +18,23 @@ export interface Batch {
   cron_schedule: string | null
   last_runs: BatchRun[]
 }
+
+export interface SigunguBatch {
+  region_code: string
+  sigungu_name: string
+  complex_count: number
+  job_id: number | null
+  job_status: string | null
+  cron_schedule: string | null
+  last_runs: BatchRun[]
+}
+
+export interface DongBatch {
+  dong_code: string
+  dong_name: string
+  complex_count: number
+  job_id: number | null
+  job_status: string | null
+  cron_schedule: string | null
+  last_runs: BatchRun[]
+}
