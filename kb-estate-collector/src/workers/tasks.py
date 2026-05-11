@@ -10,22 +10,29 @@ KB부동산 데이터 수집 태스크:
 """
 import asyncio
 import json
-from typing import Dict, Any, List, Optional
 import logging
+from typing import Any, Dict, List, Optional
 
 from celery import Task
 from sqlalchemy.orm import Session
 
-from src.workers.celery_app import celery_app
+from src.connectors import KBListingConnector, KBPriceConnector, KBTransactionConnector
 from src.core.database import SessionLocal
 from src.core.time import now_kst
 from src.models import (
-    CrawlRun, CrawlTask, Complex, Area,
-    KBPrice, Transaction, Listing, ListingStatus,
+    Area,
+    Complex,
     ComplexFacility,
-    RunStatus, TaskStatus,
+    CrawlRun,
+    CrawlTask,
+    KBPrice,
+    Listing,
+    ListingStatus,
+    RunStatus,
+    TaskStatus,
+    Transaction,
 )
-from src.connectors import KBPriceConnector, KBTransactionConnector, KBListingConnector
+from src.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +100,7 @@ def ensure_complex_detail(db: Session, complex_obj: Complex):
         dong_code = body.get("법정동코드") or body.get("dongCd")
         if dong_code:
             complex_obj.dong_code = str(dong_code)
-        dong_name = (
-            body.get("읍면동명")
-            or body.get("법정동명")
-            or body.get("dongNm")
-        )
+        dong_name = body.get("읍면동명") or body.get("법정동명") or body.get("dongNm")
         if dong_name:
             complex_obj.dong_name = dong_name
 
@@ -161,9 +164,9 @@ def ensure_complex_facilities(db: Session, complex_obj: Complex) -> int:
         return 0
 
     # 학군만 잔존하면 삭제 후 fetch_all 로 통합 재수집
-    db.query(ComplexFacility).filter(
-        ComplexFacility.complex_id == complex_obj.id
-    ).delete(synchronize_session=False)
+    db.query(ComplexFacility).filter(ComplexFacility.complex_id == complex_obj.id).delete(
+        synchronize_session=False
+    )
     db.flush()
 
     try:
@@ -192,21 +195,25 @@ def ensure_complex_facilities(db: Session, complex_obj: Complex) -> int:
                     skipped_far += 1
                     continue
 
-            stmt = pg_insert(ComplexFacility).values(
-                complex_id=complex_obj.id,
-                facility_type=item["facility_type"],
-                sub_type=item.get("sub_type"),
-                external_id=item.get("external_id"),
-                name=item.get("name"),
-                address=item.get("address"),
-                phone=item.get("phone"),
-                distance_m=item.get("distance_m"),
-                lat=item.get("lat"),
-                lng=item.get("lng"),
-                meta=item.get("meta"),
-                fetched_at=now,
-            ).on_conflict_do_nothing(
-                index_elements=["complex_id", "facility_type", "external_id"],
+            stmt = (
+                pg_insert(ComplexFacility)
+                .values(
+                    complex_id=complex_obj.id,
+                    facility_type=item["facility_type"],
+                    sub_type=item.get("sub_type"),
+                    external_id=item.get("external_id"),
+                    name=item.get("name"),
+                    address=item.get("address"),
+                    phone=item.get("phone"),
+                    distance_m=item.get("distance_m"),
+                    lat=item.get("lat"),
+                    lng=item.get("lng"),
+                    meta=item.get("meta"),
+                    fetched_at=now,
+                )
+                .on_conflict_do_nothing(
+                    index_elements=["complex_id", "facility_type", "external_id"],
+                )
             )
             res = db.execute(stmt)
             if res.rowcount and res.rowcount > 0:
@@ -214,7 +221,8 @@ def ensure_complex_facilities(db: Session, complex_obj: Complex) -> int:
 
         db.flush()
         from collections import Counter
-        cat = Counter(it["facility_type"] for it in items[:saved + skipped_far])
+
+        cat = Counter(it["facility_type"] for it in items[: saved + skipped_far])
         logger.info(
             f"Complex {complex_obj.id} ({complex_obj.name}): facilities collected — "
             f"{dict(cat)} (saved={saved}, skipped_far={skipped_far})"
@@ -234,7 +242,9 @@ def ensure_complex_areas(db: Session, complex_obj: Complex) -> List[Area]:
         return complex_obj.areas
 
     if not complex_obj.kb_complex_id:
-        logger.warning(f"Complex {complex_obj.id} ({complex_obj.name}): no kb_complex_id, skip area fetch")
+        logger.warning(
+            f"Complex {complex_obj.id} ({complex_obj.name}): no kb_complex_id, skip area fetch"
+        )
         return []
 
     logger.info(f"Complex {complex_obj.id} ({complex_obj.name}): fetching areas from KB API")
@@ -300,9 +310,7 @@ def ensure_complex_areas(db: Session, complex_obj: Complex) -> List[Area]:
         return []
 
 
-def _get_target_complexes(
-    db: Session, target_config: Optional[str] = None
-) -> List[Complex]:
+def _get_target_complexes(db: Session, target_config: Optional[str] = None) -> List[Complex]:
     """
     target_config에서 대상 단지 목록을 결정.
     - complex_ids가 있으면 해당 단지만 (활성 여부 무관)
@@ -385,6 +393,7 @@ class DatabaseTask(Task):
 # KB 시세 수집
 # =============================================================================
 
+
 @celery_app.task(base=DatabaseTask, bind=True)
 def collect_kb_price_task(
     self,
@@ -411,11 +420,15 @@ def collect_kb_price_task(
 
         items_saved = 0
         for item in result["items"]:
-            existing = db.query(KBPrice).filter(
-                KBPrice.complex_id == complex_id,
-                KBPrice.area_id == area_id,
-                KBPrice.as_of_date == item["as_of_date"],
-            ).first()
+            existing = (
+                db.query(KBPrice)
+                .filter(
+                    KBPrice.complex_id == complex_id,
+                    KBPrice.area_id == area_id,
+                    KBPrice.as_of_date == item["as_of_date"],
+                )
+                .first()
+            )
 
             if existing:
                 existing.general_price = item["general_price"]
@@ -424,50 +437,60 @@ def collect_kb_price_task(
                 existing.fetched_at = now_kst()
                 existing.parser_version = item.get("parser_version")
             else:
-                db.add(KBPrice(
-                    complex_id=complex_id,
-                    area_id=area_id,
-                    as_of_date=item["as_of_date"],
-                    general_price=item["general_price"],
-                    high_avg_price=item["high_avg_price"],
-                    low_avg_price=item["low_avg_price"],
-                    source=item["source"],
-                    fetched_at=now_kst(),
-                    parser_version=item.get("parser_version"),
-                ))
+                db.add(
+                    KBPrice(
+                        complex_id=complex_id,
+                        area_id=area_id,
+                        as_of_date=item["as_of_date"],
+                        general_price=item["general_price"],
+                        high_avg_price=item["high_avg_price"],
+                        low_avg_price=item["low_avg_price"],
+                        source=item["source"],
+                        fetched_at=now_kst(),
+                        parser_version=item.get("parser_version"),
+                    )
+                )
             items_saved += 1
 
         # 최근실거래가 추출 (BasePrcInfoNew 응답에 포함)
         raw_data = result.get("raw")
         if raw_data:
             area_obj = db.get(Area, area_id)
-            exclusive_m2 = (area_obj.exclusive_m2 if area_obj and area_obj.exclusive_m2 else None)
+            exclusive_m2 = area_obj.exclusive_m2 if area_obj and area_obj.exclusive_m2 else None
 
             tx_data = connector.parse_recent_transaction(raw_data)
             if tx_data and exclusive_m2 is not None:
-                existing_tx = db.query(Transaction).filter(
-                    Transaction.complex_id == complex_id,
-                    Transaction.contract_date == tx_data["contract_date"],
-                    Transaction.price == tx_data["price"],
-                    Transaction.exclusive_m2 == exclusive_m2,
-                ).first()
+                existing_tx = (
+                    db.query(Transaction)
+                    .filter(
+                        Transaction.complex_id == complex_id,
+                        Transaction.contract_date == tx_data["contract_date"],
+                        Transaction.price == tx_data["price"],
+                        Transaction.exclusive_m2 == exclusive_m2,
+                    )
+                    .first()
+                )
                 if not existing_tx:
-                    db.add(Transaction(
-                        complex_id=complex_id,
-                        contract_date=tx_data["contract_date"],
-                        price=tx_data["price"],
-                        exclusive_m2=exclusive_m2,
-                        floor=tx_data.get("floor"),
-                        source="kb",
-                        fetched_at=now_kst(),
-                    ))
+                    db.add(
+                        Transaction(
+                            complex_id=complex_id,
+                            contract_date=tx_data["contract_date"],
+                            price=tx_data["price"],
+                            exclusive_m2=exclusive_m2,
+                            floor=tx_data.get("floor"),
+                            source="kb",
+                            fetched_at=now_kst(),
+                        )
+                    )
                     items_saved += 1
 
         db.commit()
         task_record.status = TaskStatus.SUCCESS
         task_record.items_collected = len(result["items"])
         task_record.items_saved = items_saved
-        logger.info(f"Task {task_key} completed: {len(result['items'])} prices, {items_saved} total saved")
+        logger.info(
+            f"Task {task_key} completed: {len(result['items'])} prices, {items_saved} total saved"
+        )
         return {"status": "success", "items_collected": len(result["items"])}
 
     except BaseException as e:
@@ -493,6 +516,7 @@ def collect_kb_price_task(
 # =============================================================================
 # KB 실거래가 수집
 # =============================================================================
+
 
 @celery_app.task(base=DatabaseTask, bind=True)
 def collect_kb_transaction_task(
@@ -523,20 +547,28 @@ def collect_kb_transaction_task(
         saved_count = 0
         for item in result["items"]:
             # idx_transaction_unique 제약 — 동일 거래 중복 INSERT 방지
-            stmt = pg_insert(Transaction).values(
-                complex_id=complex_id,
-                contract_date=item["contract_date"],
-                price=item["price"],
-                exclusive_m2=item["exclusive_m2"],
-                floor=item.get("floor"),
-                is_cancelled=item.get("is_cancelled", False),
-                source="kb",
-                source_id=item.get("external_id"),
-                fetched_at=now_kst(),
-            ).on_conflict_do_nothing(
-                index_elements=[
-                    "complex_id", "contract_date", "price", "exclusive_m2", "floor",
-                ]
+            stmt = (
+                pg_insert(Transaction)
+                .values(
+                    complex_id=complex_id,
+                    contract_date=item["contract_date"],
+                    price=item["price"],
+                    exclusive_m2=item["exclusive_m2"],
+                    floor=item.get("floor"),
+                    is_cancelled=item.get("is_cancelled", False),
+                    source="kb",
+                    source_id=item.get("external_id"),
+                    fetched_at=now_kst(),
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        "complex_id",
+                        "contract_date",
+                        "price",
+                        "exclusive_m2",
+                        "floor",
+                    ]
+                )
             )
             res = db.execute(stmt)
             if res.rowcount and res.rowcount > 0:
@@ -573,6 +605,7 @@ def collect_kb_transaction_task(
 # KB 매물 수집
 # =============================================================================
 
+
 @celery_app.task(base=DatabaseTask, bind=True)
 def collect_kb_listing_task(
     self,
@@ -603,9 +636,7 @@ def collect_kb_listing_task(
             listing_id = item["source_listing_id"]
             seen_ids.add(listing_id)
 
-            existing = db.query(Listing).filter(
-                Listing.source_listing_id == listing_id
-            ).first()
+            existing = db.query(Listing).filter(Listing.source_listing_id == listing_id).first()
 
             if existing:
                 existing.ask_price = item["ask_price"]
@@ -630,11 +661,15 @@ def collect_kb_listing_task(
 
         # 이번에 안 보인 기존 ACTIVE 매물 → REMOVED
         if seen_ids:
-            stale_listings = db.query(Listing).filter(
-                Listing.complex_id == complex_id,
-                Listing.status == ListingStatus.ACTIVE,
-                Listing.source_listing_id.notin_(seen_ids),
-            ).all()
+            stale_listings = (
+                db.query(Listing)
+                .filter(
+                    Listing.complex_id == complex_id,
+                    Listing.status == ListingStatus.ACTIVE,
+                    Listing.source_listing_id.notin_(seen_ids),
+                )
+                .all()
+            )
             for stale in stale_listings:
                 stale.status = ListingStatus.REMOVED
                 stale.status_updated_at = now_kst()
@@ -670,9 +705,13 @@ def collect_kb_listing_task(
 # KB 통합 수집 (시세 + 최근실거래가)
 # =============================================================================
 
+
 @celery_app.task(base=DatabaseTask, bind=True)
 def run_kb_collection(
-    self, job_id: int = None, run_id: int = None, target_config: str = None,
+    self,
+    job_id: int = None,
+    run_id: int = None,
+    target_config: str = None,
 ) -> Dict[str, Any]:
     """
     KB 데이터 통합 수집.
@@ -696,6 +735,7 @@ def run_kb_collection(
     # target_config가 없으면 job에서 가져오기
     if not target_config and job_id:
         from src.models import CrawlJob
+
         j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
         if j:
             target_config = j.target_config
@@ -713,6 +753,10 @@ def run_kb_collection(
 
             # 면적이 없으면 KB API에서 자동 조회
             areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
+
+            # 자식 collect_* 태스크는 다른 prefork worker가 즉시 픽업한다.
+            # ensure_* 가 만든 row를 자식 트랜잭션에서 보려면 enqueue 전 commit 필수.
+            db.commit()
 
             # 시세 + 실거래가 (면적별)
             for area in areas:
@@ -754,6 +798,7 @@ def run_kb_collection(
 # =============================================================================
 # 지역 기반 단지 발견 / 전체 수집
 # =============================================================================
+
 
 @celery_app.task(base=DatabaseTask, bind=True)
 def discover_complexes_task(self, region_code: str) -> Dict[str, Any]:
@@ -800,15 +845,20 @@ def run_region_collection(
 
     # Step 1: 단지 발견
     from src.services.complex_discovery import ComplexDiscoveryService
+
     service = ComplexDiscoveryService(db)
     discovery_result = run_async(service.discover_complexes(region_code))
 
     # Step 2: 해당 지역 활성 단지 조회
     region_prefix = region_code[:5] if len(region_code) >= 5 else region_code
-    complexes = db.query(Complex).filter(
-        Complex.region_code.like(f"{region_prefix}%"),
-        Complex.is_active == True,
-    ).all()
+    complexes = (
+        db.query(Complex)
+        .filter(
+            Complex.region_code.like(f"{region_prefix}%"),
+            Complex.is_active == True,
+        )
+        .all()
+    )
 
     if not complexes:
         logger.warning(f"No active complexes found for region {region_code}")
@@ -833,6 +883,10 @@ def run_region_collection(
 
         # 면적이 없으면 KB API에서 자동 조회
         areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
+
+        # 자식 collect_* 태스크는 다른 prefork worker가 즉시 픽업한다.
+        # ensure_* 가 만든 row를 자식 트랜잭션에서 보려면 enqueue 전 commit 필수.
+        db.commit()
 
         for area in areas:
             collect_kb_price_task.delay(
@@ -918,14 +972,15 @@ def run_scheduled_job(self, job_id: int) -> Dict[str, Any]:
 # RUNNING/PENDING 인 채로 남는다. 이게 누적되면 통계가 오염되고 finalize 가
 # 안 끝난다. 5분마다 실행해서 일정 시간 이상 멈춰있는 task/run 을 FAILED 처리.
 
-ZOMBIE_TASK_TIMEOUT_MIN = 10   # 10분 이상 RUNNING — 좀비
-ZOMBIE_RUN_TIMEOUT_MIN = 60    # 60분 이상 RUNNING — 좀비 (대규모 수집 고려)
+ZOMBIE_TASK_TIMEOUT_MIN = 10  # 10분 이상 RUNNING — 좀비
+ZOMBIE_RUN_TIMEOUT_MIN = 60  # 60분 이상 RUNNING — 좀비 (대규모 수집 고려)
 
 
 @celery_app.task
 def cleanup_zombie_runs() -> Dict[str, Any]:
     """타임아웃을 넘긴 RUNNING task/run 을 FAILED 로 정리."""
     from datetime import timedelta
+
     db: Session = SessionLocal()
     try:
         now = now_kst()
@@ -975,8 +1030,7 @@ def cleanup_zombie_runs() -> Dict[str, Any]:
             r.status = RunStatus.FAILED
             r.finished_at = now
             r.error_summary = (
-                f'{{"reason": "zombie_timeout", "stuck_for_min": '
-                f'{ZOMBIE_RUN_TIMEOUT_MIN}}}'
+                f'{{"reason": "zombie_timeout", "stuck_for_min": ' f"{ZOMBIE_RUN_TIMEOUT_MIN}}}"
             )
 
         db.commit()
@@ -993,3 +1047,154 @@ def cleanup_zombie_runs() -> Dict[str, Any]:
         raise
     finally:
         db.close()
+
+
+# =============================================================================
+# 국토교통부 실거래가 (MOLIT) 수집
+# =============================================================================
+
+
+def _normalize_apt_name(s: str) -> str:
+    """단지명 정규화 — 공백·괄호·구두점 제거, 소문자. fuzzy 매칭용."""
+    import re
+
+    if not s:
+        return ""
+    return re.sub(r"\s+|[()()【】\-\.,]", "", s).lower()
+
+
+def _match_complex_id(db: Session, sgg_cd: str, umd_cd: str, apt_nm: str) -> Optional[int]:
+    """MOLIT 거래의 (시군구코드, 법정동코드, 단지명) 으로 KB DB 의 complex 매칭."""
+    apt_norm = _normalize_apt_name(apt_nm)
+    if not apt_norm or not sgg_cd:
+        return None
+
+    dong_code = f"{sgg_cd}{umd_cd}" if umd_cd else None
+    # dong_code 정확 매칭 후보 + dong_code NULL 인 같은 시군구 단지도 포함
+    if dong_code:
+        rows = (
+            db.query(Complex.id, Complex.name)
+            .filter(
+                (Complex.dong_code == dong_code)
+                | (Complex.dong_code.is_(None) & Complex.region_code.like(f"{sgg_cd}%"))
+            )
+            .all()
+        )
+    else:
+        rows = (
+            db.query(Complex.id, Complex.name).filter(Complex.region_code.like(f"{sgg_cd}%")).all()
+        )
+    # 정규화 정확 매칭 우선
+    for cid, name in rows:
+        if _normalize_apt_name(name) == apt_norm:
+            return cid
+    # contains fallback (한쪽이 다른쪽 포함)
+    for cid, name in rows:
+        n = _normalize_apt_name(name)
+        if n and (apt_norm in n or n in apt_norm):
+            return cid
+    return None
+
+
+@celery_app.task(base=DatabaseTask, bind=True)
+def collect_molit_transaction_task(
+    self,
+    run_id: int,
+    region_code: str,
+    contract_month: str,
+) -> Dict[str, Any]:
+    """국토교통부 실거래가 수집 (시군구 LAWD_CD 5자리 × YYYYMM 1개월).
+
+    KB DB 의 단지와 매칭된 거래만 transactions 에 UPSERT (KB 가 이미 가진 같은 거래는
+    UNIQUE 인덱스로 skip). 매칭 못 한 거래는 통계로만 기록.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from src.connectors.molit_transaction import MolitTransactionConnector
+    from src.core.config import settings
+
+    db = self.db
+    task_key = f"molit_transaction_{region_code}_{contract_month}"
+    task_record = CrawlTask(
+        run_id=run_id,
+        task_key=task_key,
+        status=TaskStatus.RUNNING,
+        started_at=now_kst(),
+    )
+    db.add(task_record)
+    db.commit()
+
+    try:
+        conn = MolitTransactionConnector(rate_limit_per_minute=settings.molit_rate_limit_per_minute)
+        result = conn.fetch(region_code=region_code, contract_month=contract_month)
+        items = result["data"]
+        parsed = conn.parse(items)
+
+        matched = 0
+        inserted = 0
+        skipped_unmatched = 0
+        for raw, p in zip(items, parsed, strict=False):
+            cid = _match_complex_id(db, raw.get("sggCd", ""), raw.get("umdCd", ""), p["_apt_name"])
+            if cid is None:
+                skipped_unmatched += 1
+                continue
+            matched += 1
+            stmt = (
+                pg_insert(Transaction)
+                .values(
+                    complex_id=cid,
+                    contract_date=p["contract_date"],
+                    price=p["price"],
+                    exclusive_m2=p["exclusive_m2"],
+                    floor=p["floor"],
+                    is_cancelled=p["is_cancelled"],
+                    source="molit",
+                    source_id=p.get("source_id"),
+                    fetched_at=now_kst(),
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        "complex_id",
+                        "contract_date",
+                        "price",
+                        "exclusive_m2",
+                        "floor",
+                    ]
+                )
+            )
+            res = db.execute(stmt)
+            if res.rowcount and res.rowcount > 0:
+                inserted += 1
+        db.commit()
+
+        task_record.status = TaskStatus.SUCCESS
+        task_record.items_collected = len(parsed)
+        task_record.items_saved = inserted
+        logger.info(
+            f"Task {task_key}: raw={len(parsed)} matched={matched} "
+            f"inserted={inserted} unmatched={skipped_unmatched}"
+        )
+        return {
+            "status": "success",
+            "raw": len(parsed),
+            "matched": matched,
+            "inserted": inserted,
+            "skipped_unmatched": skipped_unmatched,
+        }
+    except BaseException as e:
+        logger.exception(f"Task {task_key} failed: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        task_record.status = TaskStatus.FAILED
+        task_record.error_type = type(e).__name__
+        task_record.error_message = str(e)[:500]
+        return {"status": "failed", "error": str(e)}
+    finally:
+        task_record.finished_at = now_kst()
+        try:
+            db.commit()
+        except Exception:
+            pass
+        _finalize_run_if_complete(db, run_id)

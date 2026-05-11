@@ -132,7 +132,9 @@ export default function RegionCodeInput({
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {Object.entries(SIDO_REGIONS).map(([sidoCode, name]) => {
+          {Object.entries(SIDO_REGIONS)
+            .sort((a, b) => a[1].localeCompare(b[1], "ko"))
+            .map(([sidoCode, name]) => {
             const status = getSidoStatus(sidoCode)
             const isExpanded = expandedSido === sidoCode
             const codes = getRegionCodes(sidoCode)
@@ -184,7 +186,9 @@ export default function RegionCodeInput({
             </button>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {Object.entries(filteredRegions).map(([regionCode, name]) => {
+            {Object.entries(filteredRegions)
+              .sort((a, b) => a[1].localeCompare(b[1], "ko"))
+              .map(([regionCode, name]) => {
               const isSelected = selectedCodes.has(regionCode)
               return (
                 <button

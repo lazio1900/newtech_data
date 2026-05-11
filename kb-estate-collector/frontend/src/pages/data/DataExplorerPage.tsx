@@ -119,7 +119,9 @@ export default function DataExplorerPage() {
                 )}
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {Object.entries(SIDO_REGIONS).map(([code, name]) => {
+                {Object.entries(SIDO_REGIONS)
+                  .sort((a, b) => a[1].localeCompare(b[1], "ko"))
+                  .map(([code, name]) => {
                   const count = sidoCounts[code] || 0
                   const isActive = selectedSido === code
                   return (
@@ -162,7 +164,9 @@ export default function DataExplorerPage() {
                   시/군/구
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {Object.entries(filteredRegions).map(([code, name]) => {
+                  {Object.entries(filteredRegions)
+                    .sort((a, b) => a[1].localeCompare(b[1], "ko"))
+                    .map(([code, name]) => {
                     const count = regionCnts[code] || 0
                     const isActive = selectedRegion === code
                     return (

@@ -48,8 +48,10 @@ const DAYS_LABEL: Record<string, string> = {
   "5": "금", "6": "토", "0": "일",
 }
 
-// 시/도 순서 (SIDO_REGIONS 키 순서)
-const SIDO_ORDER = Object.keys(SIDO_REGIONS)
+// 시/도 순서 (이름 ㄱ→ㅎ)
+const SIDO_ORDER = Object.entries(SIDO_REGIONS)
+  .sort((a, b) => a[1].localeCompare(b[1], "ko"))
+  .map(([code]) => code)
 
 export default function BatchSettingsPage() {
   const navigate = useNavigate()

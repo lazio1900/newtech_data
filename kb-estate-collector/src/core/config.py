@@ -1,4 +1,5 @@
 from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,6 +40,10 @@ class Settings(BaseSettings):
     # Rate Limiting
     default_rate_limit_per_minute: int = 60
     kb_rate_limit_per_minute: int = 20
+    molit_rate_limit_per_minute: int = 60
+
+    # 국토교통부 실거래가 OpenAPI
+    molit_api_key: Optional[str] = None
 
     # Browser / Crawling
     browser_headless: bool = True

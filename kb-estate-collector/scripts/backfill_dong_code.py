@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -54,6 +53,7 @@ async def main():
     db = SessionLocal()
     try:
         from sqlalchemy import or_
+
         q = db.query(Complex).filter(
             Complex.kb_complex_id.isnot(None),
             or_(Complex.dong_code.is_(None), Complex.lat.is_(None)),
@@ -77,17 +77,27 @@ async def main():
             if d.get("dong_code") or d.get("lat"):
                 if d.get("dong_code"):
                     c.dong_code = str(d["dong_code"])
+                    # dong_code 의 앞 5자리(시군구)로 region_code 정정 — 잘못 분류된 단지(부산 중구 등) 교정
+                    new_region = str(d["dong_code"])[:5]
+                    if c.region_code != new_region:
+                        c.region_code = new_region
                 if d.get("dong_name"):
                     c.dong_name = d["dong_name"]
                 if d.get("lat"):
-                    try: c.lat = float(d["lat"])
-                    except (ValueError, TypeError): pass
+                    try:
+                        c.lat = float(d["lat"])
+                    except (ValueError, TypeError):
+                        pass
                 if d.get("lng"):
-                    try: c.lng = float(d["lng"])
-                    except (ValueError, TypeError): pass
+                    try:
+                        c.lng = float(d["lng"])
+                    except (ValueError, TypeError):
+                        pass
                 ok += 1
                 if i % 10 == 0 or i <= 5:
-                    print(f"  [{i}/{total}] {c.name} → dong={d.get('dong_code')} ({d.get('lat')},{d.get('lng')})")
+                    print(
+                        f"  [{i}/{total}] {c.name} → dong={d.get('dong_code')} ({d.get('lat')},{d.get('lng')})"
+                    )
                 if i % 20 == 0:
                     db.commit()
             else:

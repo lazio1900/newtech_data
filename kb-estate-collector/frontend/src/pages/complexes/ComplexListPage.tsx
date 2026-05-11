@@ -181,7 +181,10 @@ export default function ComplexListPage() {
             <Input
               placeholder="단지명, 주소, 지역코드로 검색..."
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              onChange={(e) => {
+                setSearchInput(e.target.value)
+                setSelectedIds(new Set())
+              }}
               className="pl-9"
             />
           </div>
@@ -197,6 +200,7 @@ export default function ComplexListPage() {
                     setSelectedSido(null)
                     setSelectedRegion(null)
                     setPage(1)
+                    setSelectedIds(new Set())
                   }}
                   className="ml-1 rounded px-1.5 py-0.5 text-xs hover:bg-accent"
                 >
@@ -205,7 +209,9 @@ export default function ComplexListPage() {
               )}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {Object.entries(SIDO_REGIONS).map(([code, name]) => {
+              {Object.entries(SIDO_REGIONS)
+                .sort((a, b) => a[1].localeCompare(b[1], "ko"))
+                .map(([code, name]) => {
                 const count = sidoCounts[code] || 0
                 const isActive = selectedSido === code
                 return (
@@ -215,6 +221,7 @@ export default function ComplexListPage() {
                       setSelectedSido(isActive ? null : code)
                       setSelectedRegion(null)
                       setPage(1)
+                      setSelectedIds(new Set())
                     }}
                     className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
                       isActive
@@ -249,7 +256,9 @@ export default function ComplexListPage() {
                 시/군/구
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {Object.entries(filteredRegions).map(([code, name]) => {
+                {Object.entries(filteredRegions)
+                  .sort((a, b) => a[1].localeCompare(b[1], "ko"))
+                  .map(([code, name]) => {
                   const count = regionCounts[code] || 0
                   const isActive = selectedRegion === code
                   return (
@@ -259,6 +268,7 @@ export default function ComplexListPage() {
                         setSelectedRegion(isActive ? null : code)
                         setSelectedDong(null)
                         setPage(1)
+                        setSelectedIds(new Set())
                       }}
                       className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
                         isActive
@@ -294,7 +304,14 @@ export default function ComplexListPage() {
                 읍면동
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {dongData.items.map(({ dong_code, dong_name, count }) => {
+                {[...dongData.items]
+                  .sort((a, b) =>
+                    (a.dong_name || a.dong_code).localeCompare(
+                      b.dong_name || b.dong_code,
+                      "ko",
+                    ),
+                  )
+                  .map(({ dong_code, dong_name, count }) => {
                   const isActive = selectedDong === dong_code
                   return (
                     <button
@@ -302,6 +319,7 @@ export default function ComplexListPage() {
                       onClick={() => {
                         setSelectedDong(isActive ? null : dong_code)
                         setPage(1)
+                        setSelectedIds(new Set())
                       }}
                       className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
                         isActive

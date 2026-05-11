@@ -124,7 +124,9 @@ export default function JobFormDialog({
                 placeholder="예) 11680 (강남구)"
               />
               <div className="mt-1.5 flex flex-wrap gap-1">
-                {Object.entries(COMMON_REGIONS).map(([code, name]) => (
+                {Object.entries(COMMON_REGIONS)
+                  .sort((a, b) => a[1].localeCompare(b[1], "ko"))
+                  .map(([code, name]) => (
                   <button
                     key={code}
                     type="button"

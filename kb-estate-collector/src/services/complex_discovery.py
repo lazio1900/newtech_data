@@ -10,12 +10,16 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from src.connectors.kb_base import KBBaseConnector
-from src.connectors.kb_endpoints import KBEndpoint, COMPLEX_SEARCH, COMPLEX_DETAIL, REGION_SIGUNGU, REGION_DONG
-from src.connectors.base import NetworkError, BrowserError
 from src.browser.session_manager import BrowserSessionManager
 from src.browser.stealth import get_random_delay
-from src.models.complex import Complex, Area, PriorityLevel
+from src.connectors.base import BrowserError, NetworkError
+from src.connectors.kb_base import KBBaseConnector
+from src.connectors.kb_endpoints import (
+    COMPLEX_DETAIL,
+    COMPLEX_SEARCH,
+    REGION_SIGUNGU,
+)
+from src.models.complex import Area, Complex, PriorityLevel
 
 logger = logging.getLogger(__name__)
 
@@ -95,37 +99,45 @@ class ComplexDiscoveryService:
                 continue
 
             # 기존 단지 확인
-            existing = self.db.query(Complex).filter(
-                Complex.kb_complex_id == kb_id
-            ).first()
+            existing = self.db.query(Complex).filter(Complex.kb_complex_id == kb_id).first()
 
             if existing:
                 results["already_exists"] += 1
-                results["complexes"].append({
-                    "name": existing.name,
-                    "kb_complex_id": kb_id,
-                    "is_new": False,
-                })
+                # 이미 등록됐지만 dong_code 미보유면 detail 재호출 대상 (region_code 잘못 분류 정정용)
+                results["complexes"].append(
+                    {
+                        "name": existing.name,
+                        "kb_complex_id": kb_id,
+                        "is_new": False,
+                        "needs_enrich": existing.dong_code is None,
+                    }
+                )
                 continue
 
             # 신규 단지 등록
             complex_obj = self._create_complex(raw, region_code, kb_id)
             if complex_obj:
                 results["new_registered"] += 1
-                results["complexes"].append({
-                    "name": complex_obj.name,
-                    "kb_complex_id": kb_id,
-                    "is_new": True,
-                })
+                results["complexes"].append(
+                    {
+                        "name": complex_obj.name,
+                        "kb_complex_id": kb_id,
+                        "is_new": True,
+                    }
+                )
 
         self.db.commit()
         results["total_found"] = results["new_registered"] + results["already_exists"]
 
-        # 신규 단지 detail 호출 — dong_code/lat/lng 채우고 region_code 정정
-        # KB 박스가 인근 시군구 단지도 같이 반환하므로 실제 region 으로 재분류 필요
-        new_kb_ids = [c["kb_complex_id"] for c in results["complexes"] if c["is_new"]]
-        if new_kb_ids:
-            await self._enrich_new_complexes(new_kb_ids)
+        # 신규 + 기존 중 dong_code 미보유 단지 detail 호출 — dong_code/lat/lng 채우고 region_code 정정
+        # KB 박스가 인근 시군구 단지도 같이 반환하므로 실제 region 으로 재분류 필요.
+        # 기존 단지도 포함하는 이유: 옛날 등록된 단지가 detail 정정 없이 잘못된 region_code 로 남아있는 경우,
+        # 다음 discover 호출로 잡힌 박스 안 단지면 자동으로 정정됨.
+        to_enrich = [
+            c["kb_complex_id"] for c in results["complexes"] if c["is_new"] or c.get("needs_enrich")
+        ]
+        if to_enrich:
+            await self._enrich_new_complexes(to_enrich)
 
         logger.info(
             f"Discovery complete: {results['total_found']} found, "
@@ -158,11 +170,15 @@ class ComplexDiscoveryService:
                 if dong_name:
                     c.dong_name = dong_name
                 if lat:
-                    try: c.lat = float(lat)
-                    except (ValueError, TypeError): pass
+                    try:
+                        c.lat = float(lat)
+                    except (ValueError, TypeError):
+                        pass
                 if lng:
-                    try: c.lng = float(lng)
-                    except (ValueError, TypeError): pass
+                    try:
+                        c.lng = float(lng)
+                    except (ValueError, TypeError):
+                        pass
             except Exception as e:
                 logger.warning(f"enrich {kb_id} failed: {e}")
         self.db.commit()
@@ -172,14 +188,17 @@ class ComplexDiscoveryService:
 
         시군구 한 번 호출은 작은 박스로 일부만 반환됨. 그리드로 빠짐없이 커버.
         """
-        # 지역 좌표 구하기 (기본값: 서울 중심)
-        lat, lng = 37.5665, 126.9780
+        # 지역 좌표 구하기. 못 찾으면 검색 중단 — 서울 fallback 으로 잘못된 단지가
+        # 등록되는 것 방지 (예: 41530 같이 폐지된 옛 군 코드).
+        coords = None
         try:
             coords = await self._get_region_coords(region_code)
-            if coords:
-                lat, lng = coords
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"좌표 조회 실패 {region_code}: {e}")
+        if not coords:
+            logger.warning(f"좌표를 찾을 수 없음: {region_code}. 알 수 없는 행정코드일 수 있음.")
+            return []
+        lat, lng = coords
 
         # 시군구 전체 박스 (반경 약 3.3km)
         half_extent = 0.03
@@ -234,17 +253,31 @@ class ComplexDiscoveryService:
         """지역코드에서 중심 좌표 반환"""
         try:
             # 시군구 목록에서 좌표 찾기
-            sido_map = {"11": "서울시", "26": "부산시", "27": "대구시", "28": "인천시",
-                        "29": "광주시", "30": "대전시", "31": "울산시", "36": "세종시",
-                        "41": "경기도", "42": "강원도", "43": "충청북도", "44": "충청남도",
-                        "45": "전라북도", "46": "전라남도", "47": "경상북도", "48": "경상남도", "50": "제주도",
-                        "51": "강원도", "52": "전라북도"}
+            sido_map = {
+                "11": "서울시",
+                "26": "부산시",
+                "27": "대구시",
+                "28": "인천시",
+                "29": "광주시",
+                "30": "대전시",
+                "31": "울산시",
+                "36": "세종시",
+                "41": "경기도",
+                "42": "강원도",
+                "43": "충청북도",
+                "44": "충청남도",
+                "45": "전라북도",
+                "46": "전라남도",
+                "47": "경상북도",
+                "48": "경상남도",
+                "50": "제주도",
+                "51": "강원도",
+                "52": "전라북도",
+            }
             sido_code = region_code[:2]
             sido_name = sido_map.get(sido_code, "서울시")
 
-            data = await self._connector._fetch_via_http(
-                REGION_SIGUNGU, {"시도명": sido_name}
-            )
+            data = await self._connector._fetch_via_http(REGION_SIGUNGU, {"시도명": sido_name})
             sigungu_list = data.get("dataBody", {}).get("data", [])
             for sg in sigungu_list:
                 if sg.get("법정동코드", "").startswith(region_code[:5]):
@@ -285,8 +318,8 @@ class ComplexDiscoveryService:
                 'input[placeholder*="검색"]',
                 'input[placeholder*="단지"]',
                 'input[type="search"]',
-                '.search-input',
-                '#searchInput',
+                ".search-input",
+                "#searchInput",
             ]
             for selector in search_selectors:
                 try:

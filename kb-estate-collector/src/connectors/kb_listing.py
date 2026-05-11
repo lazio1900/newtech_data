@@ -8,25 +8,25 @@ API 흐름:
 1. GET /land-complex/complex/brif?단지기본일련번호={id} → 단지 브리프
 2. POST /land-property/propList/main (body: brif + 페이지 파라미터) → 매물 목록
 """
-from typing import Any, Callable, Dict, List, Optional, Tuple
 import logging
 import math
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 
+from src.connectors.base import NetworkError, ParserError
 from src.connectors.kb_base import KBBaseConnector
-from src.connectors.kb_endpoints import KBEndpoint, COMPLEX_BRIF, COMPLEX_PROP_LIST
-from src.connectors.base import ParserError, NetworkError
+from src.connectors.kb_endpoints import COMPLEX_BRIF, COMPLEX_PROP_LIST, KBEndpoint
 
 logger = logging.getLogger(__name__)
 
 # 매물 상태 매핑 (KB 매물상태구분 → 내부 상태)
 STATUS_MAP = {
-    "1": "active",    # 등록대기
-    "2": "active",    # 등록중
-    "3": "sold",      # 거래완료
-    "4": "removed",   # 삭제
-    "5": "removed",   # 기간만료
+    "1": "active",  # 등록대기
+    "2": "active",  # 등록중
+    "3": "sold",  # 거래완료
+    "4": "removed",  # 삭제
+    "5": "removed",  # 기간만료
 }
 
 PAGE_SIZE = 50  # 한 페이지에 요청할 매물 수 (최대 50)
@@ -49,12 +49,16 @@ class KBListingConnector(KBBaseConnector):
 
     def _build_http_params(self, **kwargs) -> Tuple[KBEndpoint, dict]:
         """propList/main은 2단계 API이므로 여기선 brif 엔드포인트만 반환."""
-        kb_complex_id = kwargs.get("kb_complex_id") or self._resolve_kb_complex_id(kwargs["complex_id"])
+        kb_complex_id = kwargs.get("kb_complex_id") or self._resolve_kb_complex_id(
+            kwargs["complex_id"]
+        )
         return (COMPLEX_BRIF, {"단지기본일련번호": kb_complex_id})
 
     def _build_browser_config(self, **kwargs) -> Tuple[str, str, Optional[Callable]]:
         """매물 브라우저 폴백 설정"""
-        kb_complex_id = kwargs.get("kb_complex_id") or self._resolve_kb_complex_id(kwargs["complex_id"])
+        kb_complex_id = kwargs.get("kb_complex_id") or self._resolve_kb_complex_id(
+            kwargs["complex_id"]
+        )
         page_url = f"https://kbland.kr/pl/{kb_complex_id}"
         api_pattern = "propList/main"
         return (page_url, api_pattern, None)
@@ -69,10 +73,13 @@ class KBListingConnector(KBBaseConnector):
         httpx.PoolTimeout,
     )
 
-    def _request_with_retry(self, client: "httpx.Client", method: str, url: str, *,
-                            max_retries: int = 3, **kwargs) -> "httpx.Response":
-        """transient 네트워크 오류(서버 disconnect, timeout 등)는 지수백오프로 재시도."""
+    def _request_with_retry(
+        self, client: "httpx.Client", method: str, url: str, *, max_retries: int = 5, **kwargs
+    ) -> "httpx.Response":
+        """transient 네트워크 오류(서버 disconnect, timeout 등)는 지수백오프로 재시도.
+        KB propList/main 이 자주 끊겨 backoff 를 길게 (총 ~30초까지)."""
         import time as _time
+
         last_exc = None
         for attempt in range(1, max_retries + 1):
             try:
@@ -85,26 +92,34 @@ class KBListingConnector(KBBaseConnector):
                 last_exc = e
                 if attempt == max_retries:
                     break
-                wait = 0.5 * (2 ** (attempt - 1))  # 0.5, 1, 2초
-                logger.warning(f"{self.name}: {method} {url} transient error '{e}', retry {attempt}/{max_retries} in {wait}s")
+                wait = min(1.0 * (2 ** (attempt - 1)), 15.0)  # 1, 2, 4, 8, 15
+                logger.warning(
+                    f"{self.name}: {method} {url} transient error '{e}', retry {attempt}/{max_retries} in {wait}s"
+                )
                 _time.sleep(wait)
         raise NetworkError(f"transient request failed after {max_retries} attempts: {last_exc}")
 
     def fetch(self, **kwargs) -> Dict[str, Any]:
         """동기 2단계 fetch: brif GET → propList/main POST (전체 페이지 순회).
         transient 네트워크 오류 시 자동 재시도 (3회)."""
-        kb_complex_id = kwargs.get("kb_complex_id") or self._resolve_kb_complex_id(kwargs["complex_id"])
+        kb_complex_id = kwargs.get("kb_complex_id") or self._resolve_kb_complex_id(
+            kwargs["complex_id"]
+        )
 
+        # HTTP/1.1 강제: propList/main 이 HTTP/2 stream 에서 자주 끊겨 retry 가 같은 죽은
+        # 연결을 재사용하는 문제. HTTP/1.1 은 keep-alive 끊겨도 다음 요청이 새 connection.
         with httpx.Client(
             headers=self._get_default_headers(),
-            http2=True,
+            http2=False,
             timeout=30.0,
             follow_redirects=True,
         ) as client:
             # Step 1: GET brif
             logger.info(f"{self.name}: GET brif for complex {kb_complex_id}")
             brif_resp = self._request_with_retry(
-                client, "GET", COMPLEX_BRIF.url,
+                client,
+                "GET",
+                COMPLEX_BRIF.url,
                 params={"단지기본일련번호": kb_complex_id},
             )
             if brif_resp.status_code != 200:
@@ -113,11 +128,20 @@ class KBListingConnector(KBBaseConnector):
             if not brif_data:
                 raise NetworkError(f"brif returned empty data for {kb_complex_id}")
 
-            total_listings = (brif_data.get("매매건수") or 0) + (brif_data.get("전세건수") or 0) + (brif_data.get("월세건수") or 0)
-            logger.info(f"{self.name}: {brif_data.get('단지명')} - 매매:{brif_data.get('매매건수')} 전세:{brif_data.get('전세건수')} 월세:{brif_data.get('월세건수')}")
+            total_listings = (
+                (brif_data.get("매매건수") or 0)
+                + (brif_data.get("전세건수") or 0)
+                + (brif_data.get("월세건수") or 0)
+            )
+            logger.info(
+                f"{self.name}: {brif_data.get('단지명')} - 매매:{brif_data.get('매매건수')} 전세:{brif_data.get('전세건수')} 월세:{brif_data.get('월세건수')}"
+            )
 
             if total_listings == 0:
-                return {"data": {"propertyList": []}, "metadata": {"method": "http_direct", "source": "kb"}}
+                return {
+                    "data": {"propertyList": []},
+                    "metadata": {"method": "http_direct", "source": "kb"},
+                }
 
             # Step 2: POST propList/main (모든 페이지)
             all_items = []
@@ -140,13 +164,18 @@ class KBListingConnector(KBBaseConnector):
 
                 try:
                     prop_resp = self._request_with_retry(
-                        client, "POST", COMPLEX_PROP_LIST.url, json=post_body,
+                        client,
+                        "POST",
+                        COMPLEX_PROP_LIST.url,
+                        json=post_body,
                     )
                 except NetworkError as e:
                     logger.warning(f"{self.name}: propList page {page_no} retry exhausted: {e}")
                     break
                 if prop_resp.status_code != 200:
-                    logger.warning(f"{self.name}: propList page {page_no} HTTP {prop_resp.status_code}")
+                    logger.warning(
+                        f"{self.name}: propList page {page_no} HTTP {prop_resp.status_code}"
+                    )
                     break
 
                 prop_data = prop_resp.json().get("dataBody", {}).get("data", {})
@@ -250,7 +279,9 @@ class KBListingConnector(KBBaseConnector):
         reg_date = item.get("등록년월일", "")
         if reg_date:
             # "2026.02.07" format
-            posted_at = reg_date.replace(".", "-") if "." in reg_date else self._parse_date(reg_date)
+            posted_at = (
+                reg_date.replace(".", "-") if "." in reg_date else self._parse_date(reg_date)
+            )
 
         # 거래유형
         trade_type = item.get("매물거래구분명", "매매")  # 매매, 전세, 월세
