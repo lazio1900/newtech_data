@@ -358,17 +358,17 @@ export default function BatchSettingsPage() {
                         <TableCell className="text-sm">
                           {lastRun ? (
                             <span>
-                              <span className="text-green-600">
+                              <span className="text-jb-sys-success">
                                 {lastRun.success_count}
                               </span>
                               {" / "}
-                              <span className="text-red-600">
+                              <span className="text-jb-sys-error">
                                 {lastRun.failed_count}
                               </span>
                               {lastRun.skipped_count > 0 && (
                                 <>
                                   {" / "}
-                                  <span className="text-gray-400">
+                                  <span className="text-jb-text-low">
                                     {lastRun.skipped_count}
                                   </span>
                                 </>
@@ -494,11 +494,11 @@ export default function BatchSettingsPage() {
                         {formatDuration(run.started_at, run.finished_at)}
                       </TableCell>
                       <TableCell className="text-sm">
-                        <span className="text-green-600">
+                        <span className="text-jb-sys-success">
                           {run.success_count}
                         </span>
                         {" / "}
-                        <span className="text-red-600">
+                        <span className="text-jb-sys-error">
                           {run.failed_count}
                         </span>
                       </TableCell>

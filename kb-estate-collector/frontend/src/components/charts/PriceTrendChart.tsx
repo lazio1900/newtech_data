@@ -65,17 +65,17 @@ export default function PriceTrendChart({ data }: PriceTrendChartProps) {
           <StatCard
             label="일반가"
             value={latest.일반가}
-            color="text-blue-600"
+            color="text-jb-primary-main"
           />
           <StatCard
             label="상위평균"
             value={latest.상위평균}
-            color="text-red-500"
+            color="text-jb-sys-error"
           />
           <StatCard
             label="하위평균"
             value={latest.하위평균}
-            color="text-green-600"
+            color="text-jb-sys-success"
           />
         </div>
         <p className="text-center text-xs text-muted-foreground">
@@ -96,9 +96,9 @@ export default function PriceTrendChart({ data }: PriceTrendChartProps) {
               formatter={(value: number | undefined) => formatPriceCompact(value ?? null)}
               labelFormatter={(label) => `기준일: ${String(label)}`}
             />
-            <Bar dataKey="일반가" fill="hsl(221, 83%, 53%)" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="상위평균" fill="hsl(0, 84%, 60%)" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="하위평균" fill="hsl(142, 71%, 45%)" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="일반가" fill="var(--jb-primary-main)" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="상위평균" fill="var(--jb-sys-error)" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="하위평균" fill="var(--jb-sys-success)" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -124,14 +124,14 @@ export default function PriceTrendChart({ data }: PriceTrendChartProps) {
         <Line
           type="monotone"
           dataKey="일반가"
-          stroke="hsl(221, 83%, 53%)"
+          stroke="var(--jb-primary-main)"
           strokeWidth={2}
           dot={{ r: 3 }}
         />
         <Line
           type="monotone"
           dataKey="상위평균"
-          stroke="hsl(0, 84%, 60%)"
+          stroke="var(--jb-sys-error)"
           strokeWidth={1.5}
           strokeDasharray="5 5"
           dot={{ r: 2 }}
@@ -139,7 +139,7 @@ export default function PriceTrendChart({ data }: PriceTrendChartProps) {
         <Line
           type="monotone"
           dataKey="하위평균"
-          stroke="hsl(142, 71%, 45%)"
+          stroke="var(--jb-sys-success)"
           strokeWidth={1.5}
           strokeDasharray="5 5"
           dot={{ r: 2 }}

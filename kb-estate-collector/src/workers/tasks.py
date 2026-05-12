@@ -229,6 +229,12 @@ def ensure_complex_facilities(db: Session, complex_obj: Complex) -> int:
         )
         return saved
     except Exception as e:
+        # 트랜잭션 abort 상태로 두면 같은 세션을 쓰는 호출자(run_kb_collection)의
+        # 다음 단지 처리에서 InFailedSqlTransaction 으로 연쇄 실패한다.
+        try:
+            db.rollback()
+        except Exception:
+            pass
         logger.warning(f"Complex {complex_obj.id}: facility fetch failed: {e}")
         return 0
 

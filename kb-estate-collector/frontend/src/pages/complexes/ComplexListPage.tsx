@@ -539,13 +539,13 @@ export default function ComplexListPage() {
                   <div className="text-xs text-muted-foreground">총 발견</div>
                 </div>
                 <div className="rounded-lg border p-3">
-                  <div className="text-2xl font-bold text-blue-600">
+                  <div className="text-2xl font-bold text-jb-primary-main">
                     {discoverResult.new_registered}
                   </div>
                   <div className="text-xs text-muted-foreground">신규 등록</div>
                 </div>
                 <div className="rounded-lg border p-3">
-                  <div className="text-2xl font-bold text-gray-400">
+                  <div className="text-2xl font-bold text-jb-text-low">
                     {discoverResult.already_exists}
                   </div>
                   <div className="text-xs text-muted-foreground">이미 등록</div>

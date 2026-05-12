@@ -81,10 +81,10 @@ export default function RunListPage() {
                       {formatDuration(run.started_at, run.finished_at)}
                     </TableCell>
                     <TableCell className="text-sm">{run.total_tasks}</TableCell>
-                    <TableCell className="text-sm text-green-600">
+                    <TableCell className="text-sm text-jb-sys-success">
                       {run.success_count}
                     </TableCell>
-                    <TableCell className="text-sm text-red-600">
+                    <TableCell className="text-sm text-jb-sys-error">
                       {run.failed_count}
                     </TableCell>
                   </TableRow>

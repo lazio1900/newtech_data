@@ -234,7 +234,7 @@ export default function JobFormDialog({
               onClick={handleCreateAndRun}
               disabled={runLoading || !canSubmit}
               variant="default"
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-jb-primary-main hover:bg-jb-primary-main/90"
             >
               <Play className="mr-1 h-3.5 w-3.5" />
               {runLoading ? "실행중..." : "생성 + 즉시 실행"}

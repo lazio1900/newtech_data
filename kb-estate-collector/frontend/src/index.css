@@ -43,75 +43,100 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-jb-primary-main: var(--jb-primary-main);
+  --color-jb-primary-light: var(--jb-primary-light);
+  --color-jb-bg-default: var(--jb-bg-default);
+  --color-jb-bg-surface: var(--jb-bg-surface);
+  --color-jb-text-high: var(--jb-text-high);
+  --color-jb-text-low: var(--jb-text-low);
+  --color-jb-border-default: var(--jb-border-default);
+  --color-jb-sys-success: var(--jb-sys-success);
+  --color-jb-sys-error: var(--jb-sys-error);
 }
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --jb-primary-main: #004b8d;
+  --jb-primary-light: #e8f2fb;
+  --jb-bg-default: #f6f8fb;
+  --jb-bg-surface: #ffffff;
+  --jb-text-high: #172033;
+  --jb-text-low: #667085;
+  --jb-border-default: #d8e0ea;
+  --jb-sys-success: #00856f;
+  --jb-sys-error: #d92d20;
+  --jb-text-h1: 1.5rem;
+  --jb-text-h2: 1.25rem;
+  --jb-text-h3: 1rem;
+  --jb-text-b3: 0.875rem;
+  --jb-text-b4: 0.8125rem;
+  --jb-text-c1: 0.75rem;
+  --jb-text-data: 1rem;
+  --background: var(--jb-bg-default);
+  --foreground: var(--jb-text-high);
+  --card: var(--jb-bg-surface);
+  --card-foreground: var(--jb-text-high);
+  --popover: var(--jb-bg-surface);
+  --popover-foreground: var(--jb-text-high);
+  --primary: var(--jb-primary-main);
+  --primary-foreground: #ffffff;
+  --secondary: #edf2f7;
+  --secondary-foreground: var(--jb-text-high);
+  --muted: #eef3f8;
+  --muted-foreground: var(--jb-text-low);
+  --accent: var(--jb-primary-light);
+  --accent-foreground: var(--jb-primary-main);
+  --destructive: var(--jb-sys-error);
+  --border: var(--jb-border-default);
+  --input: var(--jb-border-default);
+  --ring: var(--jb-primary-main);
+  --chart-1: var(--jb-primary-main);
+  --chart-2: var(--jb-sys-success);
+  --chart-3: var(--jb-sys-error);
+  --chart-4: #5b7fa6;
+  --chart-5: #8aa6c1;
+  --sidebar: var(--jb-bg-surface);
+  --sidebar-foreground: var(--jb-text-high);
+  --sidebar-primary: var(--jb-primary-main);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--jb-primary-light);
+  --sidebar-accent-foreground: var(--jb-primary-main);
+  --sidebar-border: var(--jb-border-default);
+  --sidebar-ring: var(--jb-primary-main);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: var(--jb-bg-default);
+  --foreground: var(--jb-text-high);
+  --card: var(--jb-bg-surface);
+  --card-foreground: var(--jb-text-high);
+  --popover: var(--jb-bg-surface);
+  --popover-foreground: var(--jb-text-high);
+  --primary: var(--jb-primary-main);
+  --primary-foreground: #ffffff;
+  --secondary: #edf2f7;
+  --secondary-foreground: var(--jb-text-high);
+  --muted: #eef3f8;
+  --muted-foreground: var(--jb-text-low);
+  --accent: var(--jb-primary-light);
+  --accent-foreground: var(--jb-primary-main);
+  --destructive: var(--jb-sys-error);
+  --border: var(--jb-border-default);
+  --input: var(--jb-border-default);
+  --ring: var(--jb-primary-main);
+  --chart-1: var(--jb-primary-main);
+  --chart-2: var(--jb-sys-success);
+  --chart-3: var(--jb-sys-error);
+  --chart-4: #5b7fa6;
+  --chart-5: #8aa6c1;
+  --sidebar: var(--jb-bg-surface);
+  --sidebar-foreground: var(--jb-text-high);
+  --sidebar-primary: var(--jb-primary-main);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--jb-primary-light);
+  --sidebar-accent-foreground: var(--jb-primary-main);
+  --sidebar-border: var(--jb-border-default);
+  --sidebar-ring: var(--jb-primary-main);
 }
 
 @layer base {
@@ -120,5 +145,31 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: var(--jb-text-b3);
+    line-height: 1.5;
+  }
+
+  h1 {
+    font-size: var(--jb-text-h1);
+  }
+
+  h2 {
+    font-size: var(--jb-text-h2);
+  }
+
+  h3 {
+    font-size: var(--jb-text-h3);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  table {
+    font-variant-numeric: tabular-nums;
   }
 }

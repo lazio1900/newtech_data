@@ -41,9 +41,9 @@ export default function RunStatsChart({ runs }: RunStatsChartProps) {
         <YAxis tick={{ fontSize: 11 }} />
         <Tooltip />
         <Legend />
-        <Bar dataKey="성공" fill="hsl(142, 71%, 45%)" radius={[2, 2, 0, 0]} />
-        <Bar dataKey="실패" fill="hsl(0, 84%, 60%)" radius={[2, 2, 0, 0]} />
-        <Bar dataKey="스킵" fill="hsl(45, 93%, 47%)" radius={[2, 2, 0, 0]} />
+        <Bar dataKey="성공" fill="var(--jb-sys-success)" radius={[2, 2, 0, 0]} />
+        <Bar dataKey="실패" fill="var(--jb-sys-error)" radius={[2, 2, 0, 0]} />
+        <Bar dataKey="스킵" fill="var(--jb-text-low)" radius={[2, 2, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )

@@ -8,7 +8,7 @@ interface StatusBadgeProps {
 }
 
 export default function StatusBadge({ status, label, className }: StatusBadgeProps) {
-  const variant = STATUS_VARIANT[status] || "bg-gray-100 text-gray-600"
+  const variant = STATUS_VARIANT[status] || "bg-jb-bg-default text-jb-text-low"
   return (
     <span
       className={cn(

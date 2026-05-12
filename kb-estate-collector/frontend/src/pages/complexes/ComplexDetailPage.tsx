@@ -1,6 +1,15 @@
 import { useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { ArrowLeft, Pencil, Trash2, Download } from "lucide-react"
+import {
+  CartesianGrid,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -22,7 +31,7 @@ import FacilitiesPanel from "./FacilitiesPanel"
 import { useComplex, useUpdateComplex, useDeleteComplex, useComplexFacilities } from "@/hooks/useComplexes"
 import { useKBPrices, useTransactions, useListings } from "@/hooks/useData"
 import { PRIORITY_LABELS, LISTING_STATUS_LABELS } from "@/lib/constants"
-import { formatPrice, formatDate, formatM2 } from "@/lib/format"
+import { formatPrice, formatPriceCompact, formatDate, formatM2 } from "@/lib/format"
 import { dataApi } from "@/api/data"
 import { toast } from "sonner"
 
@@ -35,6 +44,8 @@ export default function ComplexDetailPage() {
   const [showEdit, setShowEdit] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [selectedAreaId, setSelectedAreaId] = useState<number | undefined>()
+  const [txAreaM2, setTxAreaM2] = useState<"all" | number>("all")
+  const [lstAreaM2, setLstAreaM2] = useState<"all" | number>("all")
 
   const updateMutation = useUpdateComplex()
   const deleteMutation = useDeleteComplex()
@@ -270,32 +281,106 @@ export default function ComplexDetailPage() {
             <CardContent className="pt-6">
               {!transactions || transactions.length === 0 ? (
                 <EmptyState message="실거래가 데이터가 없습니다" />
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>계약일</TableHead>
-                      <TableHead>거래가</TableHead>
-                      <TableHead>전용면적</TableHead>
-                      <TableHead>층</TableHead>
-                      <TableHead>출처</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {transactions.map((t) => (
-                      <TableRow key={t.id}>
-                        <TableCell>{formatDate(t.contract_date)}</TableCell>
-                        <TableCell className="font-medium">
-                          {formatPrice(t.price)}
-                        </TableCell>
-                        <TableCell>{formatM2(t.exclusive_m2)}</TableCell>
-                        <TableCell>{t.floor ?? "-"}층</TableCell>
-                        <TableCell>{t.source}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+              ) : (() => {
+                const filteredTx =
+                  txAreaM2 === "all"
+                    ? transactions
+                    : transactions.filter(
+                        (t) => Math.abs(t.exclusive_m2 - (txAreaM2 as number)) < 0.5,
+                      )
+                const scatterData = filteredTx.map((t) => ({
+                  ts: new Date(t.contract_date).getTime(),
+                  price: t.price,
+                }))
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-jb-c1 text-jb-text-low">평수</span>
+                      <select
+                        className="rounded-md border bg-background px-2 py-1 text-jb-b3"
+                        value={txAreaM2}
+                        onChange={(e) =>
+                          setTxAreaM2(
+                            e.target.value === "all" ? "all" : Number(e.target.value),
+                          )
+                        }
+                      >
+                        <option value="all">전체 평수</option>
+                        {(complex.areas ?? []).map((a) => (
+                          <option key={a.id} value={a.exclusive_m2}>
+                            {formatM2(a.exclusive_m2)}
+                            {a.pyeong ? ` (${a.pyeong}평)` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-jb-c1 text-jb-text-low">
+                        {filteredTx.length}건
+                      </span>
+                    </div>
+
+                    {scatterData.length > 0 && (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <ScatterChart margin={{ top: 8, right: 24, bottom: 8, left: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis
+                            dataKey="ts"
+                            type="number"
+                            domain={["dataMin", "dataMax"]}
+                            tickFormatter={(v: number) =>
+                              new Date(v).toISOString().slice(0, 7)
+                            }
+                            tick={{ fontSize: 11 }}
+                          />
+                          <YAxis
+                            dataKey="price"
+                            tickFormatter={(v: number) => formatPriceCompact(v)}
+                            tick={{ fontSize: 11 }}
+                            width={70}
+                          />
+                          <Tooltip
+                            formatter={(v, name) =>
+                              name === "price"
+                                ? formatPrice(Number(v))
+                                : new Date(Number(v)).toISOString().slice(0, 10)
+                            }
+                            labelFormatter={(v) =>
+                              new Date(Number(v)).toISOString().slice(0, 10)
+                            }
+                          />
+                          <Scatter
+                            name="거래가"
+                            data={scatterData}
+                            fill="var(--jb-primary-main)"
+                          />
+                        </ScatterChart>
+                      </ResponsiveContainer>
+                    )}
+
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>계약일</TableHead>
+                          <TableHead>거래가</TableHead>
+                          <TableHead>전용면적</TableHead>
+                          <TableHead>층</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredTx.map((t) => (
+                          <TableRow key={t.id}>
+                            <TableCell>{formatDate(t.contract_date)}</TableCell>
+                            <TableCell className="font-medium">
+                              {formatPrice(t.price)}
+                            </TableCell>
+                            <TableCell>{formatM2(t.exclusive_m2)}</TableCell>
+                            <TableCell>{t.floor ?? "-"}층</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )
+              })()}
             </CardContent>
           </Card>
         </TabsContent>
@@ -309,43 +394,123 @@ export default function ComplexDetailPage() {
             <CardContent className="pt-6">
               {!listings || listings.length === 0 ? (
                 <EmptyState message="매물 데이터가 없습니다" />
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>매물ID</TableHead>
-                      <TableHead>호가</TableHead>
-                      <TableHead>전용면적</TableHead>
-                      <TableHead>층</TableHead>
-                      <TableHead>상태</TableHead>
-                      <TableHead>수집일</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {listings.map((l) => (
-                      <TableRow key={l.id}>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {l.source_listing_id}
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {formatPrice(l.ask_price)}
-                        </TableCell>
-                        <TableCell>{formatM2(l.exclusive_m2)}</TableCell>
-                        <TableCell>{l.floor ?? "-"}층</TableCell>
-                        <TableCell>
-                          <StatusBadge
-                            status={l.status}
-                            label={LISTING_STATUS_LABELS[l.status] || l.status}
+              ) : (() => {
+                const filteredLst =
+                  lstAreaM2 === "all"
+                    ? listings
+                    : listings.filter(
+                        (l) =>
+                          l.exclusive_m2 != null &&
+                          Math.abs(l.exclusive_m2 - (lstAreaM2 as number)) < 0.5,
+                      )
+                const scatterData = filteredLst
+                  .filter((l) => l.fetched_at && l.ask_price)
+                  .map((l) => ({
+                    ts: new Date(l.fetched_at).getTime(),
+                    price: l.ask_price,
+                  }))
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-jb-c1 text-jb-text-low">평수</span>
+                      <select
+                        className="rounded-md border bg-background px-2 py-1 text-jb-b3"
+                        value={lstAreaM2}
+                        onChange={(e) =>
+                          setLstAreaM2(
+                            e.target.value === "all" ? "all" : Number(e.target.value),
+                          )
+                        }
+                      >
+                        <option value="all">전체 평수</option>
+                        {(complex.areas ?? []).map((a) => (
+                          <option key={a.id} value={a.exclusive_m2}>
+                            {formatM2(a.exclusive_m2)}
+                            {a.pyeong ? ` (${a.pyeong}평)` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-jb-c1 text-jb-text-low">
+                        {filteredLst.length}건
+                      </span>
+                    </div>
+
+                    {scatterData.length > 0 && (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <ScatterChart margin={{ top: 8, right: 24, bottom: 8, left: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis
+                            dataKey="ts"
+                            type="number"
+                            domain={["dataMin", "dataMax"]}
+                            tickFormatter={(v: number) =>
+                              new Date(v).toISOString().slice(0, 7)
+                            }
+                            tick={{ fontSize: 11 }}
                           />
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {formatDate(l.fetched_at)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+                          <YAxis
+                            dataKey="price"
+                            tickFormatter={(v: number) => formatPriceCompact(v)}
+                            tick={{ fontSize: 11 }}
+                            width={70}
+                          />
+                          <Tooltip
+                            formatter={(v, name) =>
+                              name === "price"
+                                ? formatPrice(Number(v))
+                                : new Date(Number(v)).toISOString().slice(0, 10)
+                            }
+                            labelFormatter={(v) =>
+                              new Date(Number(v)).toISOString().slice(0, 10)
+                            }
+                          />
+                          <Scatter
+                            name="호가"
+                            data={scatterData}
+                            fill="var(--jb-primary-main)"
+                          />
+                        </ScatterChart>
+                      </ResponsiveContainer>
+                    )}
+
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>매물ID</TableHead>
+                          <TableHead>호가</TableHead>
+                          <TableHead>전용면적</TableHead>
+                          <TableHead>층</TableHead>
+                          <TableHead>상태</TableHead>
+                          <TableHead>수집일</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredLst.map((l) => (
+                          <TableRow key={l.id}>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {l.source_listing_id}
+                            </TableCell>
+                            <TableCell className="font-medium">
+                              {formatPrice(l.ask_price)}
+                            </TableCell>
+                            <TableCell>{formatM2(l.exclusive_m2)}</TableCell>
+                            <TableCell>{l.floor ?? "-"}층</TableCell>
+                            <TableCell>
+                              <StatusBadge
+                                status={l.status}
+                                label={LISTING_STATUS_LABELS[l.status] || l.status}
+                              />
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {formatDate(l.fetched_at)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )
+              })()}
             </CardContent>
           </Card>
         </TabsContent>

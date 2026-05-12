@@ -102,8 +102,8 @@ export default function RunDetailPage() {
           <span className="text-muted-foreground">태스크</span>
           <p className="mt-1 font-medium">
             총 {run.total_tasks} / 성공{" "}
-            <span className="text-green-600">{run.success_count}</span> / 실패{" "}
-            <span className="text-red-600">{run.failed_count}</span> / 스킵{" "}
+            <span className="text-jb-sys-success">{run.success_count}</span> / 실패{" "}
+            <span className="text-jb-sys-error">{run.failed_count}</span> / 스킵{" "}
             {run.skipped_count}
           </p>
         </div>
@@ -201,7 +201,7 @@ export default function RunDetailPage() {
                     <TableCell className="text-xs text-muted-foreground">
                       {formatDuration(task.started_at, task.finished_at)}
                     </TableCell>
-                    <TableCell className="max-w-[200px] truncate text-xs text-red-600">
+                    <TableCell className="max-w-[200px] truncate text-xs text-jb-sys-error">
                       {task.error_message || "-"}
                     </TableCell>
                   </TableRow>

@@ -392,15 +392,15 @@ export default function JobDetailPage() {
                           {formatDuration(run.started_at, run.finished_at)}
                         </TableCell>
                         <TableCell className="text-sm">
-                          <span className="text-green-600">
+                          <span className="text-jb-sys-success">
                             {run.success_count}
                           </span>
                           {" / "}
-                          <span className="text-red-600">
+                          <span className="text-jb-sys-error">
                             {run.failed_count}
                           </span>
                           {" / "}
-                          <span className="text-gray-400">
+                          <span className="text-jb-text-low">
                             {run.skipped_count}
                           </span>
                         </TableCell>
