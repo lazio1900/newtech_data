@@ -1,14 +1,15 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from datetime import date, datetime
 import csv
 import io
+from datetime import date, datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from src.core.database import get_db
-from src.models import KBPrice, Transaction, Listing
+from src.models import KBPrice, Listing, Transaction
 
 router = APIRouter()
 
@@ -48,6 +49,7 @@ class ListingSchema(BaseModel):
     ask_price: int
     exclusive_m2: Optional[float]
     floor: Optional[int]
+    trade_type: Optional[str]
     status: str
     fetched_at: datetime
 
@@ -63,11 +65,11 @@ def get_kb_prices(
     to_date: Optional[date] = None,
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db),  # noqa: B008
 ):
     """KB 시세 데이터 조회"""
     query = db.query(KBPrice)
-    
+
     if complex_id:
         query = query.filter(KBPrice.complex_id == complex_id)
     if area_id:
@@ -76,7 +78,7 @@ def get_kb_prices(
         query = query.filter(KBPrice.as_of_date >= from_date)
     if to_date:
         query = query.filter(KBPrice.as_of_date <= to_date)
-    
+
     prices = query.order_by(KBPrice.as_of_date.desc()).offset(skip).limit(limit).all()
     return prices
 
@@ -88,18 +90,18 @@ def get_transactions(
     to_date: Optional[date] = None,
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db),  # noqa: B008
 ):
     """실거래가 데이터 조회"""
     query = db.query(Transaction)
-    
+
     if complex_id:
         query = query.filter(Transaction.complex_id == complex_id)
     if from_date:
         query = query.filter(Transaction.contract_date >= from_date)
     if to_date:
         query = query.filter(Transaction.contract_date <= to_date)
-    
+
     transactions = query.order_by(Transaction.contract_date.desc()).offset(skip).limit(limit).all()
     return transactions
 
@@ -108,18 +110,36 @@ def get_transactions(
 def get_listings(
     complex_id: Optional[int] = None,
     status: Optional[str] = None,
+    history: bool = False,
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db),  # noqa: B008
 ):
-    """매물 데이터 조회"""
-    query = db.query(Listing)
-    
+    """매물 데이터 조회. 기본은 source_listing_id 별 최신 snapshot 만 반환.
+    history=true 면 시계열 row 전부 반환."""
+    from sqlalchemy import func
+
+    if history:
+        query = db.query(Listing)
+    else:
+        latest = (
+            db.query(
+                Listing.source_listing_id.label("sid"),
+                func.max(Listing.fetched_at).label("max_at"),
+            )
+            .group_by(Listing.source_listing_id)
+            .subquery()
+        )
+        query = db.query(Listing).join(
+            latest,
+            (Listing.source_listing_id == latest.c.sid) & (Listing.fetched_at == latest.c.max_at),
+        )
+
     if complex_id:
         query = query.filter(Listing.complex_id == complex_id)
     if status:
         query = query.filter(Listing.status == status)
-    
+
     listings = query.order_by(Listing.fetched_at.desc()).offset(skip).limit(limit).all()
     return listings
 
@@ -130,11 +150,11 @@ def export_kb_prices_csv(
     area_id: Optional[int] = None,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db),  # noqa: B008
 ):
     """KB 시세 데이터 CSV 내보내기"""
     query = db.query(KBPrice)
-    
+
     if complex_id:
         query = query.filter(KBPrice.complex_id == complex_id)
     if area_id:
@@ -143,28 +163,43 @@ def export_kb_prices_csv(
         query = query.filter(KBPrice.as_of_date >= from_date)
     if to_date:
         query = query.filter(KBPrice.as_of_date <= to_date)
-    
+
     prices = query.all()
-    
+
     # Create CSV
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        'id', 'complex_id', 'area_id', 'as_of_date',
-        'general_price', 'high_avg_price', 'low_avg_price', 'fetched_at'
-    ])
-    
+    writer.writerow(
+        [
+            "id",
+            "complex_id",
+            "area_id",
+            "as_of_date",
+            "general_price",
+            "high_avg_price",
+            "low_avg_price",
+            "fetched_at",
+        ]
+    )
+
     for price in prices:
-        writer.writerow([
-            price.id, price.complex_id, price.area_id, price.as_of_date,
-            price.general_price, price.high_avg_price, price.low_avg_price,
-            price.fetched_at
-        ])
-    
+        writer.writerow(
+            [
+                price.id,
+                price.complex_id,
+                price.area_id,
+                price.as_of_date,
+                price.general_price,
+                price.high_avg_price,
+                price.low_avg_price,
+                price.fetched_at,
+            ]
+        )
+
     output.seek(0)
-    
+
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=kb_prices.csv"}
+        headers={"Content-Disposition": "attachment; filename=kb_prices.csv"},
     )

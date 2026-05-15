@@ -21,6 +21,8 @@ export interface Transaction {
   source: string
 }
 
+export type TradeType = "매매" | "전세" | "월세" | null
+
 export interface Listing {
   id: number
   complex_id: number
@@ -28,6 +30,7 @@ export interface Listing {
   ask_price: number
   exclusive_m2: number | null
   floor: number | null
+  trade_type: TradeType
   status: ListingStatus
   fetched_at: string
 }

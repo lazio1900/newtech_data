@@ -6,24 +6,22 @@ KB부동산 전용 하이브리드 베이스 커넥터.
 2. 연속 실패 시 Playwright 브라우저 폴백 (느리지만 확실함)
 """
 import asyncio
-import random
 import logging
 from abc import abstractmethod
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import httpx
 
-from src.connectors.base import (
-    BaseConnector,
-    NetworkError,
-    AuthenticationError,
-    RateLimitError,
-    BrowserError,
-    PageLoadError,
-)
-from src.connectors.kb_endpoints import KBEndpoint
 from src.browser.session_manager import BrowserSessionManager
 from src.browser.stealth import get_random_delay
+from src.connectors.base import (
+    AuthenticationError,
+    BaseConnector,
+    NetworkError,
+    PageLoadError,
+    RateLimitError,
+)
+from src.connectors.kb_endpoints import KBEndpoint
 from src.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -102,13 +100,13 @@ class KBBaseConnector(BaseConnector):
         httpx.PoolTimeout,
     )
 
-    async def _fetch_via_http(self, endpoint: KBEndpoint, params: dict,
-                              max_retries: int = 3) -> dict:
+    async def _fetch_via_http(
+        self, endpoint: KBEndpoint, params: dict, max_retries: int = 3
+    ) -> dict:
         """httpx 직접 API 호출 — transient 오류 시 지수백오프 재시도(0.5/1/2초)."""
         client = await self._get_http_client()
         logger.debug(f"{self.name}: HTTP {endpoint.method} {endpoint.url}")
 
-        last_exc: Optional[Exception] = None
         for attempt in range(1, max_retries + 1):
             try:
                 if endpoint.method == "GET":
@@ -117,11 +115,10 @@ class KBBaseConnector(BaseConnector):
                     response = await client.post(endpoint.url, json=params)
                 break  # success — exit retry loop
             except self._TRANSIENT_EXC as e:
-                last_exc = e
                 if attempt == max_retries:
                     raise NetworkError(
                         f"transient HTTP error after {max_retries} attempts: {e}"
-                    )
+                    ) from e
                 wait = 0.5 * (2 ** (attempt - 1))
                 logger.warning(
                     f"{self.name}: {endpoint.method} {endpoint.url} transient '{e}', "
@@ -136,9 +133,7 @@ class KBBaseConnector(BaseConnector):
         elif response.status_code in (401, 403):
             raise AuthenticationError(f"Auth error: {response.status_code}")
         else:
-            raise NetworkError(
-                f"HTTP {response.status_code}: {response.text[:300]}"
-            )
+            raise NetworkError(f"HTTP {response.status_code}: {response.text[:300]}")
 
     async def _fetch_via_browser(
         self,
@@ -156,24 +151,18 @@ class KBBaseConnector(BaseConnector):
         try:
             timeout = settings.browser_timeout_ms
 
-            # 페이지 이동
+            # expect_response 를 goto 전에 등록해야 페이지 로드 중 발생한 XHR 도 잡힘.
+            # SPA 는 goto 의 networkidle 대기 동안 핵심 API 호출이 이미 끝나는 경우가 있음.
             logger.info(f"{self.name}: Browser navigating to {page_url}")
-            await page.goto(page_url, wait_until="networkidle", timeout=timeout)
-
-            # 랜덤 딜레이 (봇 감지 방지)
-            delay = get_random_delay(settings.min_request_delay, settings.max_request_delay)
-            await asyncio.sleep(delay)
-
-            # API 응답 대기하며 인터랙션 수행
             async with page.expect_response(
                 lambda r: api_url_pattern in r.url and r.status == 200,
-                timeout=15000,
+                timeout=timeout,
             ) as response_info:
+                await page.goto(page_url, wait_until="domcontentloaded", timeout=timeout)
                 if interaction_fn:
+                    delay = get_random_delay(settings.min_request_delay, settings.max_request_delay)
+                    await asyncio.sleep(delay)
                     await interaction_fn(page)
-                else:
-                    # 일부 페이지는 자동으로 데이터를 로드
-                    await asyncio.sleep(2.0)
 
             response = await response_info.value
             data = await response.json()
@@ -194,6 +183,7 @@ class KBBaseConnector(BaseConnector):
             if loop.is_running():
                 # 이미 이벤트 루프가 실행 중인 경우 (Celery 등)
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     result = pool.submit(asyncio.run, self._async_fetch(**kwargs)).result()
                 return result
@@ -242,6 +232,7 @@ class KBBaseConnector(BaseConnector):
     def _resolve_kb_complex_id(self, complex_id: int) -> str:
         """DB에서 KB 단지 ID 조회"""
         from src.models.complex import Complex
+
         complex_obj = self.db.query(Complex).get(complex_id)
         if not complex_obj or not complex_obj.kb_complex_id:
             raise ValueError(f"Complex {complex_id}: kb_complex_id not found")
@@ -249,7 +240,8 @@ class KBBaseConnector(BaseConnector):
 
     def _resolve_kb_ids(self, complex_id: int, area_id: int) -> Tuple[str, str]:
         """DB에서 KB 단지 ID + 면적 코드 조회"""
-        from src.models.complex import Complex, Area
+        from src.models.complex import Area, Complex
+
         complex_obj = self.db.query(Complex).get(complex_id)
         area_obj = self.db.query(Area).get(area_id)
 

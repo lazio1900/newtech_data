@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom"
 import { ArrowLeft, Pencil, Trash2, Download } from "lucide-react"
 import {
   CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
@@ -286,7 +287,7 @@ export default function ComplexDetailPage() {
                   txAreaM2 === "all"
                     ? transactions
                     : transactions.filter(
-                        (t) => Math.abs(t.exclusive_m2 - (txAreaM2 as number)) < 0.5,
+                        (t) => Math.abs(t.exclusive_m2 - (txAreaM2 as number)) < 1.0,
                       )
                 const scatterData = filteredTx.map((t) => ({
                   ts: new Date(t.contract_date).getTime(),
@@ -401,14 +402,25 @@ export default function ComplexDetailPage() {
                     : listings.filter(
                         (l) =>
                           l.exclusive_m2 != null &&
-                          Math.abs(l.exclusive_m2 - (lstAreaM2 as number)) < 0.5,
+                          Math.abs(l.exclusive_m2 - (lstAreaM2 as number)) < 1.0,
                       )
-                const scatterData = filteredLst
-                  .filter((l) => l.fetched_at && l.ask_price)
-                  .map((l) => ({
-                    ts: new Date(l.fetched_at).getTime(),
-                    price: l.ask_price,
-                  }))
+                const buildScatter = (type: string) =>
+                  filteredLst
+                    .filter(
+                      (l) => l.trade_type === type && l.fetched_at && l.ask_price,
+                    )
+                    .map((l) => {
+                      const d = new Date(l.fetched_at)
+                      return {
+                        ts: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(),
+                        price: l.ask_price,
+                      }
+                    })
+                const saleData = buildScatter("매매")
+                const jeonseData = buildScatter("전세")
+                const monthlyData = buildScatter("월세")
+                const hasScatter =
+                  saleData.length + jeonseData.length + monthlyData.length > 0
                 return (
                   <div className="space-y-4">
                     <div className="flex items-center gap-2">
@@ -435,7 +447,7 @@ export default function ComplexDetailPage() {
                       </span>
                     </div>
 
-                    {scatterData.length > 0 && (
+                    {hasScatter && (
                       <ResponsiveContainer width="100%" height={260}>
                         <ScatterChart margin={{ top: 8, right: 24, bottom: 8, left: 8 }}>
                           <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -464,11 +476,10 @@ export default function ComplexDetailPage() {
                               new Date(Number(v)).toISOString().slice(0, 10)
                             }
                           />
-                          <Scatter
-                            name="호가"
-                            data={scatterData}
-                            fill="var(--jb-primary-main)"
-                          />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Scatter name="매매" data={saleData} fill="#2563eb" />
+                          <Scatter name="전세" data={jeonseData} fill="#059669" />
+                          <Scatter name="월세" data={monthlyData} fill="#d97706" />
                         </ScatterChart>
                       </ResponsiveContainer>
                     )}
@@ -477,6 +488,7 @@ export default function ComplexDetailPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>매물ID</TableHead>
+                          <TableHead>거래</TableHead>
                           <TableHead>호가</TableHead>
                           <TableHead>전용면적</TableHead>
                           <TableHead>층</TableHead>
@@ -489,6 +501,21 @@ export default function ComplexDetailPage() {
                           <TableRow key={l.id}>
                             <TableCell className="text-xs text-muted-foreground">
                               {l.source_listing_id}
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={
+                                  l.trade_type === "매매"
+                                    ? "inline-flex rounded-md bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700"
+                                    : l.trade_type === "전세"
+                                      ? "inline-flex rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                                      : l.trade_type === "월세"
+                                        ? "inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700"
+                                        : "text-xs text-muted-foreground"
+                                }
+                              >
+                                {l.trade_type ?? "-"}
+                              </span>
                             </TableCell>
                             <TableCell className="font-medium">
                               {formatPrice(l.ask_price)}

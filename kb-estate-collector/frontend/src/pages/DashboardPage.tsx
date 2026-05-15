@@ -11,13 +11,13 @@ import { RUN_STATUS_LABELS } from "@/lib/constants"
 import { formatDateTime, formatDuration } from "@/lib/format"
 
 export default function DashboardPage() {
-  const { data: complexes } = useComplexes({ limit: 1000 })
+  const { data: complexesAll } = useComplexes({ limit: 1 })
+  const { data: complexesActive } = useComplexes({ limit: 1, is_active: true })
   const { data: jobs } = useJobs()
   const { data: runs } = useRuns({ limit: 50 })
 
-  const complexList = complexes?.items ?? []
-  const totalComplexes = complexes?.total ?? 0
-  const activeComplexes = complexList.filter((c) => c.is_active).length
+  const totalComplexes = complexesAll?.total ?? 0
+  const activeComplexes = complexesActive?.total ?? 0
   const activeJobs = jobs?.filter((j) => j.status === "active").length ?? 0
   const recentRuns = runs?.slice(0, 5) ?? []
   const lastSuccess = runs?.find((r) => r.status === "success")
@@ -120,7 +120,12 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
                       <span>
-                        {run.success_count}/{run.total_tasks} 성공
+                        <span className="text-jb-sys-success">{run.success_count}</span>
+                        {" / "}
+                        <span className="text-jb-sys-error">{run.failed_count}</span>
+                        {" / "}
+                        <span className="text-jb-text-low">{run.skipped_count ?? 0}</span>
+                        <span className="ml-1">({run.total_tasks})</span>
                       </span>
                       <span>{formatDuration(run.started_at, run.finished_at)}</span>
                     </div>

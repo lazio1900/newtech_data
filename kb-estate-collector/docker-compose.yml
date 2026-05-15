@@ -1,36 +1,4 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:14-alpine
-    environment:
-      POSTGRES_USER: kb_user
-      POSTGRES_PASSWORD: kb_password
-      POSTGRES_DB: kb_estate
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U kb_user" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Redis (Queue & Cache)
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
   # Admin API (FastAPI)
   admin-api:
     build:
@@ -39,19 +7,14 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://kb_user:kb_password@postgres:5432/kb_estate
+      DATABASE_URL: postgresql://kb_user:change-me-in-production@postgres:5432/kb_estate
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     volumes:
       - ./src:/app/src
       - ./alembic.ini:/app/alembic.ini
-    command: uvicorn src.admin_api.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn src.admin_api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir src/admin_api
 
   # Celery Worker
   celery-worker:
@@ -59,18 +22,18 @@ services:
       context: .
       dockerfile: docker/worker.Dockerfile
     environment:
-      DATABASE_URL: postgresql://kb_user:kb_password@postgres:5432/kb_estate
+      DATABASE_URL: postgresql://kb_user:change-me-in-production@postgres:5432/kb_estate
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      PYTHONFAULTHANDLER: "1"
+      KB_LOGIN_ID: ${KB_LOGIN_ID:-}
+      KB_LOGIN_PASSWORD: ${KB_LOGIN_PASSWORD:-}
+      KB_ACCESS_TOKEN: ${KB_ACCESS_TOKEN:-}
+      KB_REFRESH_TOKEN: ${KB_REFRESH_TOKEN:-}
     volumes:
       - ./src:/app/src
-    command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=4
+    command: celery -A src.workers.celery_app worker --pool=prefork --concurrency=4 --loglevel=info
 
   # Celery Beat (Scheduler)
   celery-beat:
@@ -78,19 +41,33 @@ services:
       context: .
       dockerfile: docker/worker.Dockerfile
     environment:
-      DATABASE_URL: postgresql://kb_user:kb_password@postgres:5432/kb_estate
+      DATABASE_URL: postgresql://kb_user:change-me-in-production@postgres:5432/kb_estate
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     volumes:
       - ./src:/app/src
     command: celery -A src.workers.celery_app beat --loglevel=info
 
-volumes:
-  postgres_data:
-  redis_data:
+  # Frontend (Vite dev server)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5174:5174"
+    environment:
+      VITE_DEV_API_TARGET: http://admin-api:8000
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5174"]
+
+# 공유 인프라(postgres/redis)는 newtech-platform 의 docker-compose 가 책임.
+# 본 compose 의 admin-api / celery / frontend 는 그 네트워크에 합류해
+# 컨테이너 이름(postgres, redis) 으로 직접 연결한다.
+networks:
+  default:
+    name: newtech-platform_default
+    external: true

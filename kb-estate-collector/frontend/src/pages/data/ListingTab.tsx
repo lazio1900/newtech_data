@@ -63,6 +63,7 @@ export default function ListingTab({ complexId }: ListingTabProps) {
               <TableRow>
                 {!complexId && <TableHead>단지</TableHead>}
                 <TableHead>매물ID</TableHead>
+                <TableHead>거래</TableHead>
                 <TableHead>호가</TableHead>
                 <TableHead>전용면적</TableHead>
                 <TableHead>층</TableHead>
@@ -80,6 +81,21 @@ export default function ListingTab({ complexId }: ListingTabProps) {
                   )}
                   <TableCell className="text-xs font-mono text-muted-foreground">
                     {l.source_listing_id}
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className={
+                        l.trade_type === "매매"
+                          ? "inline-flex rounded-md bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700"
+                          : l.trade_type === "전세"
+                            ? "inline-flex rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                            : l.trade_type === "월세"
+                              ? "inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700"
+                              : "text-xs text-muted-foreground"
+                      }
+                    >
+                      {l.trade_type ?? "-"}
+                    </span>
                   </TableCell>
                   <TableCell className="font-medium">
                     {formatPrice(l.ask_price)}

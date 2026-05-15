@@ -109,6 +109,8 @@ export function SigunguSubRows({ sidoCode, onScheduleClick }: SigunguSubRowsProp
                     <span className="text-jb-sys-success">{lastRun.success_count}</span>
                     {" / "}
                     <span className="text-jb-sys-error">{lastRun.failed_count}</span>
+                    {" / "}
+                    <span className="text-jb-text-low">{lastRun.skipped_count ?? 0}</span>
                   </span>
                 ) : <span className="text-muted-foreground">-</span>}
               </TableCell>
@@ -210,6 +212,8 @@ function DongSubRows({ regionCode, onScheduleClick }: DongSubRowsProps) {
                   <span className="text-jb-sys-success">{lastRun.success_count}</span>
                   {" / "}
                   <span className="text-jb-sys-error">{lastRun.failed_count}</span>
+                  {" / "}
+                  <span className="text-jb-text-low">{lastRun.skipped_count ?? 0}</span>
                 </span>
               ) : <span className="text-muted-foreground">-</span>}
             </TableCell>

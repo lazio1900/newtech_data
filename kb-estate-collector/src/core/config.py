@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     min_request_delay: float = 2.0
     max_request_delay: float = 5.0
 
+    # KB 매물 인증 — 자동 로그인 (KB 자체 계정)
+    kb_login_id: Optional[str] = None
+    kb_login_password: Optional[str] = None
+    # KB 매물 인증 fallback — 호스트 크롬에서 로그인 후 추출한 세션 쿠키
+    kb_access_token: Optional[str] = None
+    kb_refresh_token: Optional[str] = None
+
     # Notification
     slack_webhook_url: Optional[str] = None
     sentry_dsn: Optional[str] = None

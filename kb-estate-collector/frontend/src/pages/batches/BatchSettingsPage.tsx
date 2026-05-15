@@ -365,14 +365,10 @@ export default function BatchSettingsPage() {
                               <span className="text-jb-sys-error">
                                 {lastRun.failed_count}
                               </span>
-                              {lastRun.skipped_count > 0 && (
-                                <>
-                                  {" / "}
-                                  <span className="text-jb-text-low">
-                                    {lastRun.skipped_count}
-                                  </span>
-                                </>
-                              )}
+                              {" / "}
+                              <span className="text-jb-text-low">
+                                {lastRun.skipped_count ?? 0}
+                              </span>
                             </span>
                           ) : (
                             <span className="text-muted-foreground">-</span>
@@ -451,7 +447,7 @@ export default function BatchSettingsPage() {
                   <TableHead>상태</TableHead>
                   <TableHead>시작</TableHead>
                   <TableHead>소요시간</TableHead>
-                  <TableHead>성공/실패</TableHead>
+                  <TableHead>성공/실패/스킵</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -500,6 +496,10 @@ export default function BatchSettingsPage() {
                         {" / "}
                         <span className="text-jb-sys-error">
                           {run.failed_count}
+                        </span>
+                        {" / "}
+                        <span className="text-jb-text-low">
+                          {run.skipped_count ?? 0}
                         </span>
                       </TableCell>
                     </TableRow>

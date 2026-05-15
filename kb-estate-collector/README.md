@@ -146,79 +146,54 @@ kb-estate-collector/
 
 ## 빠른 시작
 
+본 레포는 **짝 프로젝트 [`newtech-platform`](../../newtech-platform) 과 같은 PostgreSQL/Redis 컨테이너를 공유**한다. platform 측 docker-compose 가 인프라를 소유하므로 platform 을 먼저 띄워야 한다. 자세한 배경은 [`INTEGRATION.md`](./INTEGRATION.md) 참조.
+
 ### 1. 사전 요구사항
 
-- Python 3.11+
-- Node.js 22.12+
 - Docker Desktop
+- (호스트 venv 디버그 모드를 쓸 때만) Python 3.11+, Node.js 22.12+
 
-### 2. 인프라 시작
-
-```bash
-cd kb-estate-collector
-
-# PostgreSQL + Redis (Docker)
-docker-compose up -d postgres redis
-
-# 상태 확인
-docker-compose ps
-```
-
-> **주의**: 로컬에 PostgreSQL이 설치되어 있으면 포트 5432 충돌이 발생합니다.
-> `docker-compose.yml`의 PostgreSQL 포트가 `5433:5432`로 설정되어 있습니다.
-
-### 3. 환경 설정
+### 2. newtech-platform 기동 (공유 인프라 포함)
 
 ```bash
-# .env 파일 생성 (.env.example 참고)
-cp .env.example .env
-# DATABASE_URL의 포트를 5433으로 수정
+cd /Users/lmj/00_projects/newtech-platform
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```
 
-### 4. DB 마이그레이션
+postgres(5433) / redis(6379) 컨테이너가 `newtech-platform_default` 네트워크에 뜬다.
+
+### 3. 본 레포 기동
 
 ```bash
-pip install -r requirements.txt
-
-# 마이그레이션 생성 + 적용
-python -m alembic revision --autogenerate -m "Initial schema"
-python -m alembic upgrade head
+cd /Users/lmj/00_projects/newtech_data/kb-estate-collector
+docker compose up -d
+# admin-api, celery-worker, celery-beat, frontend 네 컨테이너 기동
 ```
 
-### 5. 백엔드 시작
+### 4. DB 마이그레이션 (최초 / 모델 변경 시)
 
 ```bash
-# FastAPI 서버
-uvicorn src.admin_api.main:app --host 0.0.0.0 --port 8000 --reload
-
-# Celery Worker (별도 터미널)
-celery -A src.workers.celery_app worker --loglevel=info --pool=solo
+docker compose exec admin-api alembic upgrade head
 ```
 
-> **Windows**: Celery에 `--pool=solo` 필수 (fork 미지원)
+### 5. 접속
 
-### 6. 프론트엔드 시작
+- **Admin Frontend**: http://localhost:5174
+- **Admin API (Swagger)**: http://localhost:8000/docs
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+### 호스트(venv) 디버그 모드
 
-### 7. 접속
-
-- **웹 UI**: http://localhost:5173
-- **Swagger API**: http://localhost:8000/docs
+PDB/IDE 디버거 부착이 필요할 때만 사용. 절차는 [`docs/06-프론트엔드-및-기동-가이드.md`](./docs/06-프론트엔드-및-기동-가이드.md) "호스트(venv) 디버그 모드" 섹션 참조. 도커 모드와 동시 실행 불가 (8000/5174 포트 충돌).
 
 ## 서비스 포트
 
 | 서비스 | 포트 | 비고 |
 |--------|------|------|
-| PostgreSQL (Docker) | **5433** | 로컬 PG 충돌 방지 |
-| Redis (Docker) | 6379 | |
-| FastAPI | 8000 | Swagger: /docs |
-| Celery Worker | - | Redis 브로커 |
-| Frontend (Vite) | 5173/5174 | API → :8000 프록시 |
+| PostgreSQL (Docker) | **5433** | platform compose 가 소유. 본 레포는 컨테이너 네트워크로 공유 |
+| Redis (Docker) | 6379 | 동일 |
+| Admin API (FastAPI) | 8000 | Swagger: /docs |
+| Admin Frontend (Vite) | 5174 | API → :8000 프록시 |
+| Celery Worker / Beat | - | Redis 브로커 |
 
 ## 주요 기능
 

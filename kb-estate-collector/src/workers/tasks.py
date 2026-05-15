@@ -17,6 +17,7 @@ from celery import Task
 from sqlalchemy.orm import Session
 
 from src.connectors import KBListingConnector, KBPriceConnector, KBTransactionConnector
+from src.core.config import settings
 from src.core.database import SessionLocal
 from src.core.time import now_kst
 from src.models import (
@@ -332,7 +333,15 @@ def _get_target_complexes(db: Session, target_config: Optional[str] = None) -> L
         if complex_ids and isinstance(complex_ids, list):
             return db.query(Complex).filter(Complex.id.in_(complex_ids)).all()
 
-    return db.query(Complex).filter(Complex.is_active == True).all()
+    return db.query(Complex).filter(Complex.is_active.is_(True)).all()
+
+
+def _run_cancelled(db: Session, run_id: int) -> bool:
+    """run.status 가 RUNNING 이 아니면 True. revoke 안 된 broker 잔여 task 가
+    시작될 때 즉시 종료하기 위한 가드.
+    """
+    run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
+    return run is None or run.status != RunStatus.RUNNING
 
 
 def _finalize_run_if_complete(db: Session, run_id: int):
@@ -409,6 +418,8 @@ def collect_kb_price_task(
 ) -> Dict[str, Any]:
     """단일 단지/면적에 대한 KB 시세 수집 태스크"""
     db = self.db
+    if _run_cancelled(db, run_id):
+        return {"status": "skipped", "reason": "run cancelled"}
     task_key = f"kb_price_{complex_id}_{area_id}"
 
     task_record = CrawlTask(
@@ -421,7 +432,9 @@ def collect_kb_price_task(
     db.commit()
 
     try:
-        connector = KBPriceConnector(db_session=db)
+        connector = KBPriceConnector(
+            db_session=db, rate_limit_per_minute=settings.kb_rate_limit_per_minute
+        )
         result = connector.collect(complex_id=complex_id, area_id=area_id)
 
         items_saved = 0
@@ -466,28 +479,33 @@ def collect_kb_price_task(
 
             tx_data = connector.parse_recent_transaction(raw_data)
             if tx_data and exclusive_m2 is not None:
-                existing_tx = (
-                    db.query(Transaction)
-                    .filter(
-                        Transaction.complex_id == complex_id,
-                        Transaction.contract_date == tx_data["contract_date"],
-                        Transaction.price == tx_data["price"],
-                        Transaction.exclusive_m2 == exclusive_m2,
+                # UPSERT — 동시 worker 가 같은 거래 INSERT 시 race 로 인한 UniqueViolation 회피.
+                # idx_transaction_unique = (complex_id, contract_date, price, exclusive_m2, floor)
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+                stmt = (
+                    pg_insert(Transaction)
+                    .values(
+                        complex_id=complex_id,
+                        contract_date=tx_data["contract_date"],
+                        price=tx_data["price"],
+                        exclusive_m2=exclusive_m2,
+                        floor=tx_data.get("floor"),
+                        source="kb",
+                        fetched_at=now_kst(),
                     )
-                    .first()
+                    .on_conflict_do_nothing(
+                        index_elements=[
+                            "complex_id",
+                            "contract_date",
+                            "price",
+                            "exclusive_m2",
+                            "floor",
+                        ]
+                    )
                 )
-                if not existing_tx:
-                    db.add(
-                        Transaction(
-                            complex_id=complex_id,
-                            contract_date=tx_data["contract_date"],
-                            price=tx_data["price"],
-                            exclusive_m2=exclusive_m2,
-                            floor=tx_data.get("floor"),
-                            source="kb",
-                            fetched_at=now_kst(),
-                        )
-                    )
+                res = db.execute(stmt)
+                if res.rowcount and res.rowcount > 0:
                     items_saved += 1
 
         db.commit()
@@ -533,6 +551,8 @@ def collect_kb_transaction_task(
 ) -> Dict[str, Any]:
     """단일 단지(면적)에 대한 KB 실거래가 수집. preSalePrices 사용."""
     db = self.db
+    if _run_cancelled(db, run_id):
+        return {"status": "skipped", "reason": "run cancelled"}
     task_key = f"kb_transaction_{complex_id}_{area_id or 'all'}"
 
     task_record = CrawlTask(
@@ -547,7 +567,9 @@ def collect_kb_transaction_task(
     try:
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        connector = KBTransactionConnector(db_session=db)
+        connector = KBTransactionConnector(
+            db_session=db, rate_limit_per_minute=settings.kb_rate_limit_per_minute
+        )
         result = connector.collect(complex_id=complex_id, area_id=area_id)
 
         saved_count = 0
@@ -619,7 +641,10 @@ def collect_kb_listing_task(
     complex_id: int,
 ) -> Dict[str, Any]:
     """단일 단지에 대한 KB 매물 수집 태스크"""
+
     db = self.db
+    if _run_cancelled(db, run_id):
+        return {"status": "skipped", "reason": "run cancelled"}
     task_key = f"kb_listing_{complex_id}"
 
     task_record = CrawlTask(
@@ -632,60 +657,45 @@ def collect_kb_listing_task(
     db.commit()
 
     try:
-        connector = KBListingConnector(db_session=db)
-        result = connector.collect(complex_id=complex_id)
+        connector = KBListingConnector(
+            db_session=db, rate_limit_per_minute=settings.kb_rate_limit_per_minute
+        )
+        # 매매(1) + 전세(2) 각각 호출. KB 가 거래유형 필터를 응답에 적용 → trade_type 정확
+        items_by_id: Dict[str, dict] = {}
+        for trade_code in ("1", "2"):
+            result = connector.collect(complex_id=complex_id, trade_code=trade_code)
+            for item in result["items"]:
+                items_by_id[item["source_listing_id"]] = item
+        all_items = list(items_by_id.values())
 
+        # snapshot 누적 — 매 수집마다 새 row INSERT. (source_listing_id, fetched_at) UNIQUE.
+        # batch_at 으로 같은 task 의 모든 매물이 같은 fetched_at 을 갖게 묶음.
+        batch_at = now_kst()
         saved_count = 0
-        seen_ids = set()
-
-        for item in result["items"]:
-            listing_id = item["source_listing_id"]
-            seen_ids.add(listing_id)
-
-            existing = db.query(Listing).filter(Listing.source_listing_id == listing_id).first()
-
-            if existing:
-                existing.ask_price = item["ask_price"]
-                existing.status = ListingStatus.ACTIVE
-                existing.fetched_at = now_kst()
-                existing.last_seen_at = now_kst()
-            else:
-                listing = Listing(
+        for item in all_items:
+            db.add(
+                Listing(
                     complex_id=complex_id,
-                    source_listing_id=listing_id,
+                    source_listing_id=item["source_listing_id"],
                     ask_price=item["ask_price"],
                     exclusive_m2=item.get("exclusive_m2"),
                     floor=item.get("floor"),
+                    trade_type=item.get("trade_type"),
                     status=ListingStatus.ACTIVE,
                     posted_at=item.get("posted_at"),
                     source="kb",
-                    fetched_at=now_kst(),
-                    last_seen_at=now_kst(),
+                    fetched_at=batch_at,
+                    last_seen_at=batch_at,
                 )
-                db.add(listing)
-            saved_count += 1
-
-        # 이번에 안 보인 기존 ACTIVE 매물 → REMOVED
-        if seen_ids:
-            stale_listings = (
-                db.query(Listing)
-                .filter(
-                    Listing.complex_id == complex_id,
-                    Listing.status == ListingStatus.ACTIVE,
-                    Listing.source_listing_id.notin_(seen_ids),
-                )
-                .all()
             )
-            for stale in stale_listings:
-                stale.status = ListingStatus.REMOVED
-                stale.status_updated_at = now_kst()
+            saved_count += 1
 
         db.commit()
         task_record.status = TaskStatus.SUCCESS
-        task_record.items_collected = len(result["items"])
+        task_record.items_collected = len(all_items)
         task_record.items_saved = saved_count
-        logger.info(f"Task {task_key} completed: {len(result['items'])} items")
-        return {"status": "success", "items_collected": len(result["items"])}
+        logger.info(f"Task {task_key} completed: {len(all_items)} items")
+        return {"status": "success", "items_collected": len(all_items)}
 
     except BaseException as e:
         logger.exception(f"Task {task_key} failed: {e}")
@@ -705,6 +715,109 @@ def collect_kb_listing_task(
         except Exception:
             pass
         _finalize_run_if_complete(db, run_id)
+
+
+# =============================================================================
+# 단지 prepare (ensure_* 를 worker pool 로 분리)
+# =============================================================================
+
+
+@celery_app.task(base=DatabaseTask, bind=True)
+def prepare_complex_task(
+    self,
+    run_id: int,
+    complex_id: int,
+    enqueue_transaction: bool = True,
+) -> Dict[str, Any]:
+    """단지 prepare: detail/facilities/areas 채우고 자식 수집 task 들을 enqueue.
+
+    master 가 단지마다 ensure_* 를 sync 로 부르면 KB Facility + OSM 4종 호출
+    (학교/지하철/병원/공원) 로 단지당 2~12초 block 됨 → worker idle. 그래서
+    prepare 단계 자체를 worker pool 로 분산.
+
+    total_tasks 는 child enqueue 직전에 atomic 증가시키고 enqueue 후 자기를
+    SUCCESS 로 마킹. _finalize_run_if_complete 가 잘못된 시점에 finalize 하는
+    걸 피하려고 순서가 중요하다.
+    """
+    db = self.db
+    if _run_cancelled(db, run_id):
+        return {"status": "skipped", "reason": "run cancelled"}
+    task_key = f"kb_prepare_{complex_id}"
+
+    task_record = CrawlTask(
+        run_id=run_id,
+        task_key=task_key,
+        status=TaskStatus.RUNNING,
+        started_at=now_kst(),
+    )
+    db.add(task_record)
+    db.commit()
+
+    try:
+        complex_obj = db.query(Complex).filter(Complex.id == complex_id).first()
+        if not complex_obj:
+            raise ValueError(f"Complex {complex_id} not found")
+
+        ensure_complex_detail(db, complex_obj)
+        ensure_complex_facilities(db, complex_obj)
+        areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
+        db.commit()
+
+        per_area = 2 if enqueue_transaction else 1
+        new_count = len(areas) * per_area + 1  # +1 = listing
+
+        # 1. total_tasks 먼저 증가 (child 가 먼저 끝나도 _finalize 가 헛돌지 않도록)
+        db.query(CrawlRun).filter(CrawlRun.id == run_id).update(
+            {CrawlRun.total_tasks: CrawlRun.total_tasks + new_count}
+        )
+        db.commit()
+
+        # 2. child enqueue
+        for area in areas:
+            collect_kb_price_task.delay(
+                run_id=run_id,
+                complex_id=complex_id,
+                area_id=area.id,
+            )
+            if enqueue_transaction:
+                collect_kb_transaction_task.delay(
+                    run_id=run_id,
+                    complex_id=complex_id,
+                    area_id=area.id,
+                )
+        collect_kb_listing_task.delay(
+            run_id=run_id,
+            complex_id=complex_id,
+        )
+
+        # 3. prepare 자기 SUCCESS
+        task_record.status = TaskStatus.SUCCESS
+        task_record.finished_at = now_kst()
+        db.commit()
+
+        _finalize_run_if_complete(db, run_id)
+        return {
+            "status": "success",
+            "areas": len(areas),
+            "children_enqueued": new_count,
+        }
+
+    except Exception as e:
+        logger.exception(f"prepare_complex_task failed for complex {complex_id}: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        task_record.status = TaskStatus.FAILED
+        task_record.error_type = type(e).__name__
+        task_record.error_message = str(e)[:500]
+        task_record.finished_at = now_kst()
+        try:
+            db.commit()
+        except Exception:
+            pass
+        _finalize_run_if_complete(db, run_id)
+        raise
 
 
 # =============================================================================
@@ -749,49 +862,28 @@ def run_kb_collection(
     try:
         complexes = _get_target_complexes(db, target_config)
 
-        total_tasks = 0
+        # prepare 단계를 worker pool 로 분산 — master 는 단지마다 prepare 만 enqueue.
+        # prepare_complex_task 가 ensure_* 후 collect_* child 들을 직접 enqueue 하고
+        # CrawlRun.total_tasks 를 atomic 증가시킨다.
+        run.total_tasks = len(complexes)
+        db.commit()
+
         for complex_obj in complexes:
-            # 단지 기본 정보 수집 (세대수, 년식, 주소 등)
-            ensure_complex_detail(db, complex_obj)
-
-            # 단지 주변 학군 수집 (이미 있으면 스킵)
-            ensure_complex_facilities(db, complex_obj)
-
-            # 면적이 없으면 KB API에서 자동 조회
-            areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
-
-            # 자식 collect_* 태스크는 다른 prefork worker가 즉시 픽업한다.
-            # ensure_* 가 만든 row를 자식 트랜잭션에서 보려면 enqueue 전 commit 필수.
-            db.commit()
-
-            # 시세 + 실거래가 (면적별)
-            for area in areas:
-                collect_kb_price_task.delay(
-                    run_id=run.id,
-                    complex_id=complex_obj.id,
-                    area_id=area.id,
-                )
-                total_tasks += 1
-                collect_kb_transaction_task.delay(
-                    run_id=run.id,
-                    complex_id=complex_obj.id,
-                    area_id=area.id,
-                )
-                total_tasks += 1
-
-            # 매물 수집 (단지별)
-            collect_kb_listing_task.delay(
+            prepare_complex_task.delay(
                 run_id=run.id,
                 complex_id=complex_obj.id,
+                enqueue_transaction=True,
             )
-            total_tasks += 1
 
-        db.commit()
-        run.total_tasks = total_tasks
-        db.commit()
-
-        logger.info(f"Run {run.id}: Launched {total_tasks} tasks for {len(complexes)} complexes")
-        return {"run_id": run.id, "total_tasks": total_tasks, "complexes_count": len(complexes)}
+        logger.info(
+            f"Run {run.id}: Launched {len(complexes)} prepare tasks "
+            f"(child collect tasks will be enqueued by prepare)"
+        )
+        return {
+            "run_id": run.id,
+            "total_tasks": len(complexes),
+            "complexes_count": len(complexes),
+        }
 
     except Exception as e:
         logger.exception(f"Run {run.id} failed: {e}")
@@ -861,7 +953,7 @@ def run_region_collection(
         db.query(Complex)
         .filter(
             Complex.region_code.like(f"{region_prefix}%"),
-            Complex.is_active == True,
+            Complex.is_active.is_(True),
         )
         .all()
     )
@@ -878,49 +970,24 @@ def run_region_collection(
             "total_tasks": 0,
         }
 
-    # Step 3: 태스크 실행
-    total_tasks = 0
-    for complex_obj in complexes:
-        # 단지 기본 정보 수집
-        ensure_complex_detail(db, complex_obj)
-
-        # 단지 주변 학군 수집 (이미 있으면 스킵)
-        ensure_complex_facilities(db, complex_obj)
-
-        # 면적이 없으면 KB API에서 자동 조회
-        areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
-
-        # 자식 collect_* 태스크는 다른 prefork worker가 즉시 픽업한다.
-        # ensure_* 가 만든 row를 자식 트랜잭션에서 보려면 enqueue 전 commit 필수.
-        db.commit()
-
-        for area in areas:
-            collect_kb_price_task.delay(
-                run_id=run.id,
-                complex_id=complex_obj.id,
-                area_id=area.id,
-            )
-            total_tasks += 1
-
-        # 매물 수집 (단지별)
-        collect_kb_listing_task.delay(
-            run_id=run.id,
-            complex_id=complex_obj.id,
-        )
-        total_tasks += 1
-
-    run.total_tasks = total_tasks
+    # Step 3: prepare 단계를 worker pool 로 분산 (run_kb_collection 과 동일 패턴).
+    # region 수집은 transaction 미포함이라 flag 로 분기.
+    run.total_tasks = len(complexes)
     db.commit()
 
-    logger.info(
-        f"Region collection for {region_code}: "
-        f"{len(complexes)} complexes, {total_tasks} tasks launched"
-    )
+    for complex_obj in complexes:
+        prepare_complex_task.delay(
+            run_id=run.id,
+            complex_id=complex_obj.id,
+            enqueue_transaction=False,
+        )
+
+    logger.info(f"Region collection for {region_code}: " f"{len(complexes)} prepare tasks launched")
     return {
         "region_code": region_code,
         "discovery": discovery_result,
         "run_id": run.id,
-        "total_tasks": total_tasks,
+        "total_tasks": len(complexes),
         "complexes_count": len(complexes),
     }
 
@@ -969,6 +1036,13 @@ def run_scheduled_job(self, job_id: int) -> Dict[str, Any]:
 
     target_config = json.dumps({"complex_ids": [c.id for c in complexes]})
     run_kb_collection.delay(job_id=job.id, run_id=run.id, target_config=target_config)
+
+    # 같은 region 의 KB 시세 history 백필도 동시에 trigger.
+    # backfill 은 IntgrationChart API 직접 호출이라 정기 수집과 worker concurrency 만 공유.
+    backfill_prefix = cfg.get("dong_code") or cfg.get("region_code") or cfg.get("sido_code")
+    if backfill_prefix:
+        backfill_kb_price_history_task.delay(region_prefix=backfill_prefix)
+
     logger.info(f"[scheduled_job] {job_id}: triggered {len(complexes)} complexes (run={run.id})")
     return {"status": "triggered", "run_id": run.id, "count": len(complexes)}
 
@@ -978,8 +1052,8 @@ def run_scheduled_job(self, job_id: int) -> Dict[str, Any]:
 # RUNNING/PENDING 인 채로 남는다. 이게 누적되면 통계가 오염되고 finalize 가
 # 안 끝난다. 5분마다 실행해서 일정 시간 이상 멈춰있는 task/run 을 FAILED 처리.
 
-ZOMBIE_TASK_TIMEOUT_MIN = 10  # 10분 이상 RUNNING — 좀비
-ZOMBIE_RUN_TIMEOUT_MIN = 60  # 60분 이상 RUNNING — 좀비 (대규모 수집 고려)
+ZOMBIE_TASK_TIMEOUT_MIN = 60  # 60분 이상 RUNNING — 좀비
+ZOMBIE_RUN_TIMEOUT_MIN = 360  # 6시간 이상 RUNNING — 좀비 (대규모 수집 + KB rate limit 고려)
 
 
 @celery_app.task
@@ -1051,6 +1125,224 @@ def cleanup_zombie_runs() -> Dict[str, Any]:
         db.rollback()
         logger.error(f"[cleanup_zombie_runs] failed: {e}")
         raise
+    finally:
+        db.close()
+
+
+# =============================================================================
+# KB 시세 월별 history 백필
+# =============================================================================
+
+_KB_HISTORY_ENDPOINT = "https://api.kbland.kr/land-price/price/PerMn/IntgrationChart"
+_KB_HISTORY_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
+    ),
+    "Origin": "https://kbland.kr",
+    "Referer": "https://kbland.kr/",
+}
+
+
+def _fetch_kb_price_history(
+    client,
+    kb_complex_id: str,
+    kb_area_code: str,
+    since_yyyymmdd: str,
+    until_yyyymmdd: str,
+) -> List[Dict[str, Any]]:
+    """KB IntgrationChart → 월별 시세 dict 리스트. 매매가 없는 월은 skip."""
+    params = {
+        "단지기본일련번호": kb_complex_id,
+        "면적일련번호": kb_area_code,
+        "거래구분": 0,
+        "조회구분": 2,
+        "조회시작일": since_yyyymmdd,
+        "조회종료일": until_yyyymmdd,
+    }
+    r = client.get(_KB_HISTORY_ENDPOINT, params=params)
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:120]}")
+    data = r.json().get("dataBody", {}).get("data") or {}
+    out: List[Dict[str, Any]] = []
+    # KB 는 데이터 없으면 "시세": null 로 반환하기도 함 → or [] 로 정규화
+    for grp in data.get("시세") or []:
+        for it in grp.get("items") or []:
+            ym = it.get("기준년월")
+            if not ym or len(ym) != 6:
+                continue
+            general = it.get("매매일반거래가")
+            if not general:
+                continue
+            out.append(
+                {
+                    "as_of_date": f"{ym[:4]}-{ym[4:6]}-01",
+                    "general_price": int(general) * 10000,
+                    "high_avg_price": int(it["매매상한가"]) * 10000
+                    if it.get("매매상한가")
+                    else None,
+                    "low_avg_price": int(it["매매하한가"]) * 10000
+                    if it.get("매매하한가")
+                    else None,
+                }
+            )
+    return out
+
+
+@celery_app.task(bind=True)
+def backfill_kb_price_history_task(
+    self,
+    months: int = 36,
+    batch_limit: int = 5000,
+    max_runtime_sec: int = 1800,
+    rate_sec: float = 1.1,
+    region_prefix: Optional[str] = None,
+) -> Dict[str, Any]:
+    """KB 월별 시세 백필 — (단지,면적) 미수집 페어를 시간/배치 한도까지 처리.
+
+    region_prefix 가 주어지면 해당 region_code prefix 단지만 대상.
+    정기 수집 task 가 시도별 cron 시점에 region_prefix=sido_code 로 trigger.
+    """
+    import time
+    from datetime import date, timedelta
+
+    import httpx
+    from sqlalchemy import text
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    db: Session = SessionLocal()
+    started = time.monotonic()
+    today = date.today()
+    since = (today - timedelta(days=months * 31)).strftime("%Y%m%d")
+    until = today.strftime("%Y%m%d")
+
+    processed = 0
+    inserted_total = 0
+    errors = 0
+    try:
+        pairs = db.execute(
+            text(
+                """
+                SELECT c.id AS complex_id, c.kb_complex_id,
+                       a.id AS area_id, a.kb_area_code
+                FROM complexes c
+                JOIN areas a ON a.complex_id = c.id
+                LEFT JOIN (
+                    SELECT DISTINCT complex_id, area_id
+                    FROM kb_prices
+                    WHERE source LIKE 'kb_history%'
+                ) p ON p.complex_id = c.id AND p.area_id = a.id
+                WHERE c.kb_complex_id IS NOT NULL
+                  AND a.kb_area_code IS NOT NULL
+                  AND p.complex_id IS NULL
+                  AND (:prefix IS NULL OR c.region_code LIKE :prefix_like)
+                ORDER BY c.region_code, c.id, a.id
+                LIMIT :lim
+                """
+            ),
+            {
+                "lim": batch_limit,
+                "prefix": region_prefix,
+                "prefix_like": f"{region_prefix}%" if region_prefix else None,
+            },
+        ).fetchall()
+
+        if not pairs:
+            logger.info("[backfill_kb_price_history] 미백필 페어 없음")
+            return {"processed": 0, "inserted": 0, "errors": 0, "remaining": 0}
+
+        with httpx.Client(headers=_KB_HISTORY_HEADERS, timeout=20.0) as client:
+            for row in pairs:
+                if time.monotonic() - started > max_runtime_sec:
+                    break
+                try:
+                    items = _fetch_kb_price_history(
+                        client,
+                        row.kb_complex_id,
+                        row.kb_area_code,
+                        since,
+                        until,
+                    )
+                    if not items:
+                        # KB 에 36개월 history 없음 → sentinel 1행으로 done 표시
+                        db.execute(
+                            pg_insert(KBPrice)
+                            .values(
+                                complex_id=row.complex_id,
+                                area_id=row.area_id,
+                                as_of_date=date(1900, 1, 1),
+                                general_price=None,
+                                high_avg_price=None,
+                                low_avg_price=None,
+                                source="kb_history_empty",
+                                fetched_at=now_kst(),
+                            )
+                            .on_conflict_do_nothing(
+                                index_elements=["complex_id", "area_id", "as_of_date"]
+                            )
+                        )
+                    for it in items:
+                        stmt = (
+                            pg_insert(KBPrice)
+                            .values(
+                                complex_id=row.complex_id,
+                                area_id=row.area_id,
+                                as_of_date=it["as_of_date"],
+                                general_price=it["general_price"],
+                                high_avg_price=it["high_avg_price"],
+                                low_avg_price=it["low_avg_price"],
+                                source="kb_history",
+                                fetched_at=now_kst(),
+                            )
+                            .on_conflict_do_nothing(
+                                index_elements=["complex_id", "area_id", "as_of_date"]
+                            )
+                        )
+                        res = db.execute(stmt)
+                        if res.rowcount and res.rowcount > 0:
+                            inserted_total += 1
+                    db.commit()
+                    processed += 1
+                except Exception as e:
+                    db.rollback()
+                    errors += 1
+                    logger.warning(
+                        f"[backfill_kb_price_history] complex#{row.complex_id} "
+                        f"area#{row.area_id}: {type(e).__name__}: {e}"
+                    )
+                time.sleep(rate_sec)
+
+        remaining = db.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM areas a
+                JOIN complexes c ON c.id = a.complex_id
+                LEFT JOIN (
+                    SELECT DISTINCT complex_id, area_id
+                    FROM kb_prices WHERE source LIKE 'kb_history%'
+                ) p ON p.complex_id = c.id AND p.area_id = a.id
+                WHERE c.kb_complex_id IS NOT NULL
+                  AND a.kb_area_code IS NOT NULL
+                  AND p.complex_id IS NULL
+                  AND (:prefix IS NULL OR c.region_code LIKE :prefix_like)
+                """
+            ),
+            {
+                "prefix": region_prefix,
+                "prefix_like": f"{region_prefix}%" if region_prefix else None,
+            },
+        ).scalar()
+
+        result = {
+            "processed": processed,
+            "inserted": inserted_total,
+            "errors": errors,
+            "remaining": int(remaining or 0),
+            "elapsed_sec": int(time.monotonic() - started),
+            "region_prefix": region_prefix,
+        }
+        logger.info(f"[backfill_kb_price_history] {result}")
+        return result
     finally:
         db.close()
 

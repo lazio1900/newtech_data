@@ -51,6 +51,7 @@ export default function RunListPage() {
                   <TableHead>태스크</TableHead>
                   <TableHead>성공</TableHead>
                   <TableHead>실패</TableHead>
+                  <TableHead>스킵</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -86,6 +87,9 @@ export default function RunListPage() {
                     </TableCell>
                     <TableCell className="text-sm text-jb-sys-error">
                       {run.failed_count}
+                    </TableCell>
+                    <TableCell className="text-sm text-jb-text-low">
+                      {run.skipped_count ?? 0}
                     </TableCell>
                   </TableRow>
                 ))}

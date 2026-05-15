@@ -17,7 +17,7 @@
 | Redis | **6379** | `newtech-platform` docker-compose에서 기동 | DB 0 |
 
 > **중요**: 인프라(PostgreSQL, Redis)는 `newtech-platform`의 docker-compose로 통합 관리합니다.
-> `newtech_data`의 docker-compose는 단독 개발/테스트 시에만 사용합니다.
+> `newtech_data`의 docker-compose는 **postgres/redis 서비스를 갖지 않으며**, `newtech-platform_default` 네트워크에 외부 참조로 합류해 platform 의 컨테이너를 직접 사용합니다. 따라서 platform 이 먼저 떠 있어야 합니다.
 
 ## 포트 할당 (고정)
 
@@ -61,9 +61,11 @@
 
 ## 이 프로젝트(.env) 설정
 
+`.env` 는 **호스트에서 직접(venv) 실행할 때만** 참조됩니다. docker compose 로 띄울 때는 `docker-compose.yml` 의 `environment` 블록이 우선합니다.
+
 ```env
-# 공유 인프라에 연결 (newtech-platform docker-compose 기준)
-DATABASE_URL=postgresql://kb_user:kb_password@localhost:5433/kb_estate
+# 호스트에서 venv 로 실행 시 (디버그 용도)
+DATABASE_URL=postgresql://kb_user:change-me-in-production@localhost:5433/kb_estate
 REDIS_URL=redis://localhost:6379/0
 CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/0
@@ -73,32 +75,42 @@ API_HOST=0.0.0.0
 API_PORT=8000
 ```
 
-## 기동 순서
+비밀번호(`change-me-in-production`)는 `newtech-platform/.env` 의 `POSTGRES_PASSWORD` 와 일치해야 합니다.
+
+## 기동 순서 (도커 운영)
 
 ```bash
-# 1. 인프라 (newtech-platform에서 기동, 이미 실행 중이면 스킵)
+# 1. 공유 인프라 + platform 자체 (newtech-platform)
 cd /Users/lmj/00_projects/newtech-platform
-docker-compose up -d postgres redis
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
-# 2. newtech_data 백엔드
+# 2. newtech_data 스택 (admin-api / celery-worker / celery-beat / frontend)
 cd /Users/lmj/00_projects/newtech_data/kb-estate-collector
-source .venv/bin/activate
-uvicorn src.admin_api.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 3. newtech_data Celery Worker (별도 터미널)
-celery -A src.workers.celery_app worker --loglevel=info --pool=solo
-
-# 4. newtech_data 프론트엔드 (별도 터미널)
-cd frontend && npm run dev
-# → http://localhost:5174
+docker compose up -d
+# Admin API → http://localhost:8000/docs
+# Admin Frontend → http://localhost:5174
 ```
 
-## 단독 개발 시 (newtech-platform 없이)
+종료 순서는 역순(newtech_data → newtech-platform). platform 을 먼저 내리면 kb 컨테이너가 사용 중인 네트워크가 끊깁니다.
 
-newtech-platform이 실행되지 않은 상태에서 이 프로젝트만 테스트하려면:
+### 알렘빅 마이그레이션
 
 ```bash
-# 이 프로젝트의 docker-compose 사용 (포트가 다를 수 있음)
-docker-compose up -d postgres redis
-# .env의 포트를 docker-compose.yml에 맞게 조정
+docker compose exec admin-api alembic upgrade head
+docker compose exec admin-api alembic revision --autogenerate -m "..."
 ```
+
+## 호스트(venv) 단독 디버그
+
+특정 코드를 PDB / IDE 디버거로 잡고 싶을 때만 사용. 인프라(postgres/redis)는 여전히 platform docker 가 띄워주고 있어야 하며, 본 레포의 코드만 호스트에서 직접 실행합니다.
+
+```bash
+source .venv/bin/activate
+uvicorn src.admin_api.main:app --host 0.0.0.0 --port 8000 --reload   # 별도 터미널 1
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES PYTHONFAULTHANDLER=1 \
+  celery -A src.workers.celery_app worker --pool=prefork --concurrency=4 --loglevel=info   # 별도 터미널 2
+celery -A src.workers.celery_app beat --loglevel=info                # 별도 터미널 3
+cd frontend && npm run dev                                           # 별도 터미널 4
+```
+
+이 모드는 docker compose 와 동시 사용 불가 (8000/5174 포트 충돌). 한 모드만 골라 실행합니다.
