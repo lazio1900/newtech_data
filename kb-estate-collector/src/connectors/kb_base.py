@@ -57,6 +57,15 @@ class KBBaseConnector(BaseConnector):
         self._consecutive_http_failures: int = 0
         self._max_http_failures_before_fallback: int = 3
 
+    def _wait_for_rate_limit(self):
+        """전역 Redis 토큰버킷으로 KB 호출률을 모든 워커에 걸쳐 상한 제어.
+
+        인스턴스 변수 기반 base 구현은 leaf 마다 새 커넥터라 전역 throttle 이 안 됐다.
+        """
+        from src.core.rate_limiter import get_bucket
+
+        get_bucket("kb", settings.kb_global_rate_limit_per_minute).acquire()
+
     @property
     def db(self):
         if self._db_session is None:

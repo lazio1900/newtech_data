@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { runsApi } from "@/api/runs"
 import type { RunStatus } from "@/types/run"
 
@@ -47,5 +47,13 @@ export function useRunTasks(
       }
       return false
     },
+  })
+}
+
+export function useRunCancel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => runsApi.cancel(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["runs"] }),
   })
 }

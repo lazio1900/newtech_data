@@ -14,6 +14,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from celery import Task
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.connectors import KBListingConnector, KBPriceConnector, KBTransactionConnector
@@ -344,46 +345,97 @@ def _run_cancelled(db: Session, run_id: int) -> bool:
     return run is None or run.status != RunStatus.RUNNING
 
 
-def _finalize_run_if_complete(db: Session, run_id: int):
-    """
-    Run에 속한 모든 태스크가 완료(success/failed/skipped)되었는지 확인하고,
-    모두 끝났으면 Run 상태를 성공/실패/부분성공으로 갱신.
-    """
-    run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
-    if not run or run.status not in (RunStatus.RUNNING,):
-        return
+def _begin_task(db: Session, run_id: int, task_key: str) -> CrawlTask:
+    """task row 를 RUNNING 으로 시작. UNIQUE(run_id, task_key) 하에서 redeliver 시
+    기존 row 를 재사용해 중복 INSERT(IntegrityError)·카운트 오염을 막는다(멱등)."""
+    existing = db.query(CrawlTask).filter_by(run_id=run_id, task_key=task_key).first()
+    if existing is not None:
+        existing.status = TaskStatus.RUNNING
+        existing.started_at = now_kst()
+        db.commit()
+        return existing
+    task = CrawlTask(
+        run_id=run_id, task_key=task_key, status=TaskStatus.RUNNING, started_at=now_kst()
+    )
+    db.add(task)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        task = db.query(CrawlTask).filter_by(run_id=run_id, task_key=task_key).first()
+        task.status = TaskStatus.RUNNING
+        task.started_at = now_kst()
+        db.commit()
+    return task
 
-    total = run.total_tasks or 0
-    if total == 0:
-        return
 
-    finished_statuses = {TaskStatus.SUCCESS, TaskStatus.FAILED, TaskStatus.SKIPPED}
-    tasks = db.query(CrawlTask).filter(CrawlTask.run_id == run_id).all()
-    finished = [t for t in tasks if t.status in finished_statuses]
+def _run_status_counts(db: Session, run_id: int) -> Dict[Any, int]:
+    """run 의 태스크를 status 별로 집계 (GROUP BY COUNT). 전수 ORM 로딩 회피."""
+    from sqlalchemy import func
 
-    if len(finished) < total:
-        return  # 아직 진행 중
+    return dict(
+        db.query(CrawlTask.status, func.count())
+        .filter(CrawlTask.run_id == run_id)
+        .group_by(CrawlTask.status)
+        .all()
+    )
 
-    success = sum(1 for t in finished if t.status == TaskStatus.SUCCESS)
-    failed = sum(1 for t in finished if t.status == TaskStatus.FAILED)
-    skipped = sum(1 for t in finished if t.status == TaskStatus.SKIPPED)
 
+def _apply_run_terminal(
+    run: CrawlRun, counts: Dict[Any, int], *, reason: Optional[str] = None
+) -> RunStatus:
+    """집계 결과로 run 을 종료 상태(SUCCESS/PARTIAL/FAILED)로 전이. commit 은 호출자 책임."""
+    success = counts.get(TaskStatus.SUCCESS, 0)
+    failed = counts.get(TaskStatus.FAILED, 0)
+    skipped = counts.get(TaskStatus.SKIPPED, 0)
     run.success_count = success
     run.failed_count = failed
     run.skipped_count = skipped
     run.finished_at = now_kst()
-
     if failed == 0:
         run.status = RunStatus.SUCCESS
     elif success == 0:
         run.status = RunStatus.FAILED
     else:
         run.status = RunStatus.PARTIAL
+    if reason:
+        run.error_summary = reason
+    return run.status
 
+
+def _finalize_run_if_complete(db: Session, run_id: int):
+    """leaf/prepare 완료 시 호출되는 fast-path 마감. 모든 태스크가 끝났으면 종료 전이.
+
+    완주 보장의 단일 의존점이 되지 않도록 의도적으로 가볍게 유지한다 — 이 트리거를
+    놓쳐도(worker recycle 등) cleanup_zombie_runs 의 drain-sweep 이 5분 내 집계만으로 마감.
+    """
+    run = db.query(CrawlRun).filter(CrawlRun.id == run_id).first()
+    if not run or run.status != RunStatus.RUNNING:
+        return
+
+    total = run.total_tasks or 0
+    if total == 0:
+        return
+
+    # prepare 단계가 끝나기 전엔 child 가 계속 enqueue 되어 total 이 증가 중 → 마감 금지.
+    prepare_total = run.prepare_total or 0
+    if prepare_total > 0 and (run.prepare_done_count or 0) < prepare_total:
+        return
+
+    counts = _run_status_counts(db, run_id)
+    finished = (
+        counts.get(TaskStatus.SUCCESS, 0)
+        + counts.get(TaskStatus.FAILED, 0)
+        + counts.get(TaskStatus.SKIPPED, 0)
+    )
+    if finished < total:
+        return
+
+    status = _apply_run_terminal(run, counts)
     db.commit()
     logger.info(
-        f"Run {run_id} finalized: {run.status.value} "
-        f"(success={success}, failed={failed}, skipped={skipped})"
+        f"Run {run_id} finalized: {status.value} "
+        f"(success={run.success_count}, failed={run.failed_count}, skipped={run.skipped_count})"
     )
 
 
@@ -422,14 +474,7 @@ def collect_kb_price_task(
         return {"status": "skipped", "reason": "run cancelled"}
     task_key = f"kb_price_{complex_id}_{area_id}"
 
-    task_record = CrawlTask(
-        run_id=run_id,
-        task_key=task_key,
-        status=TaskStatus.RUNNING,
-        started_at=now_kst(),
-    )
-    db.add(task_record)
-    db.commit()
+    task_record = _begin_task(db, run_id, task_key)
 
     try:
         connector = KBPriceConnector(
@@ -555,14 +600,7 @@ def collect_kb_transaction_task(
         return {"status": "skipped", "reason": "run cancelled"}
     task_key = f"kb_transaction_{complex_id}_{area_id or 'all'}"
 
-    task_record = CrawlTask(
-        run_id=run_id,
-        task_key=task_key,
-        status=TaskStatus.RUNNING,
-        started_at=now_kst(),
-    )
-    db.add(task_record)
-    db.commit()
+    task_record = _begin_task(db, run_id, task_key)
 
     try:
         from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -647,14 +685,7 @@ def collect_kb_listing_task(
         return {"status": "skipped", "reason": "run cancelled"}
     task_key = f"kb_listing_{complex_id}"
 
-    task_record = CrawlTask(
-        run_id=run_id,
-        task_key=task_key,
-        status=TaskStatus.RUNNING,
-        started_at=now_kst(),
-    )
-    db.add(task_record)
-    db.commit()
+    task_record = _begin_task(db, run_id, task_key)
 
     try:
         connector = KBListingConnector(
@@ -667,35 +698,74 @@ def collect_kb_listing_task(
             for item in result["items"]:
                 items_by_id[item["source_listing_id"]] = item
         all_items = list(items_by_id.values())
+        seen_ids = list(items_by_id.keys())
 
-        # snapshot 누적 — 매 수집마다 새 row INSERT. (source_listing_id, fetched_at) UNIQUE.
-        # batch_at 으로 같은 task 의 모든 매물이 같은 fetched_at 을 갖게 묶음.
+        # 단지의 현재 호가만 유지. source_listing_id UNIQUE → upsert.
+        # 이번 응답에 없는 기존 ACTIVE 는 REMOVED 로 전이 (CLAUDE.md §5).
+        from sqlalchemy import case
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
         batch_at = now_kst()
         saved_count = 0
         for item in all_items:
-            db.add(
-                Listing(
-                    complex_id=complex_id,
-                    source_listing_id=item["source_listing_id"],
-                    ask_price=item["ask_price"],
-                    exclusive_m2=item.get("exclusive_m2"),
-                    floor=item.get("floor"),
-                    trade_type=item.get("trade_type"),
-                    status=ListingStatus.ACTIVE,
-                    posted_at=item.get("posted_at"),
-                    source="kb",
-                    fetched_at=batch_at,
-                    last_seen_at=batch_at,
-                )
+            stmt = pg_insert(Listing).values(
+                complex_id=complex_id,
+                source_listing_id=item["source_listing_id"],
+                ask_price=item["ask_price"],
+                exclusive_m2=item.get("exclusive_m2"),
+                floor=item.get("floor"),
+                trade_type=item.get("trade_type"),
+                status=ListingStatus.ACTIVE,
+                posted_at=item.get("posted_at"),
+                source="kb",
+                fetched_at=batch_at,
+                last_seen_at=batch_at,
+                status_updated_at=batch_at,
             )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["source_listing_id"],
+                set_={
+                    "complex_id": stmt.excluded.complex_id,
+                    "ask_price": stmt.excluded.ask_price,
+                    "exclusive_m2": stmt.excluded.exclusive_m2,
+                    "floor": stmt.excluded.floor,
+                    "trade_type": stmt.excluded.trade_type,
+                    "status": ListingStatus.ACTIVE,
+                    "posted_at": stmt.excluded.posted_at,
+                    "fetched_at": batch_at,
+                    "last_seen_at": batch_at,
+                    # REMOVED 였다가 ACTIVE 복원될 때만 갱신. 계속 ACTIVE 면 그대로 유지.
+                    "status_updated_at": case(
+                        (Listing.status != ListingStatus.ACTIVE, batch_at),
+                        else_=Listing.status_updated_at,
+                    ),
+                },
+            )
+            db.execute(stmt)
             saved_count += 1
+
+        # seen_ids 에 없는 기존 ACTIVE 매물은 REMOVED.
+        removed_q = db.query(Listing).filter(
+            Listing.complex_id == complex_id,
+            Listing.status == ListingStatus.ACTIVE,
+        )
+        if seen_ids:
+            removed_q = removed_q.filter(~Listing.source_listing_id.in_(seen_ids))
+        removed_count = removed_q.update(
+            {"status": ListingStatus.REMOVED, "status_updated_at": batch_at},
+            synchronize_session=False,
+        )
 
         db.commit()
         task_record.status = TaskStatus.SUCCESS
         task_record.items_collected = len(all_items)
         task_record.items_saved = saved_count
-        logger.info(f"Task {task_key} completed: {len(all_items)} items")
-        return {"status": "success", "items_collected": len(all_items)}
+        logger.info(f"Task {task_key} completed: {len(all_items)} items, {removed_count} removed")
+        return {
+            "status": "success",
+            "items_collected": len(all_items),
+            "removed": removed_count,
+        }
 
     except BaseException as e:
         logger.exception(f"Task {task_key} failed: {e}")
@@ -744,14 +814,20 @@ def prepare_complex_task(
         return {"status": "skipped", "reason": "run cancelled"}
     task_key = f"kb_prepare_{complex_id}"
 
-    task_record = CrawlTask(
-        run_id=run_id,
-        task_key=task_key,
-        status=TaskStatus.RUNNING,
-        started_at=now_kst(),
+    # 멱등 재진입: redeliver 로 이미 완료된 prepare 면 total/prepare_done 재증가 없이 종료.
+    already_done = (
+        db.query(CrawlTask)
+        .filter(
+            CrawlTask.run_id == run_id,
+            CrawlTask.task_key == task_key,
+            CrawlTask.status == TaskStatus.SUCCESS,
+        )
+        .first()
     )
-    db.add(task_record)
-    db.commit()
+    if already_done:
+        return {"status": "skipped", "reason": "prepare already done"}
+
+    task_record = _begin_task(db, run_id, task_key)
 
     try:
         complex_obj = db.query(Complex).filter(Complex.id == complex_id).first()
@@ -762,6 +838,11 @@ def prepare_complex_task(
         ensure_complex_facilities(db, complex_obj)
         areas = complex_obj.areas or ensure_complex_areas(db, complex_obj)
         db.commit()
+
+        # 품질 가드: kb_complex_id 가 있는데 면적 0건이면 KB 조회 실패(일시적 장애 등) —
+        # 빈 데이터로 prepare-SUCCESS 시키지 않고 실패로 가시화해 다음 run 에서 재시도되게 한다.
+        if not areas and complex_obj.kb_complex_id:
+            raise ValueError(f"complex {complex_id}: KB 면적 조회 0건 — 데이터 불완전, 재수집 필요")
 
         per_area = 2 if enqueue_transaction else 1
         new_count = len(areas) * per_area + 1  # +1 = listing
@@ -790,9 +871,12 @@ def prepare_complex_task(
             complex_id=complex_id,
         )
 
-        # 3. prepare 자기 SUCCESS
+        # 3. prepare 자기 SUCCESS + prepare_done_count 증가 (완료 게이트용)
         task_record.status = TaskStatus.SUCCESS
         task_record.finished_at = now_kst()
+        db.query(CrawlRun).filter(CrawlRun.id == run_id).update(
+            {CrawlRun.prepare_done_count: CrawlRun.prepare_done_count + 1}
+        )
         db.commit()
 
         _finalize_run_if_complete(db, run_id)
@@ -812,6 +896,10 @@ def prepare_complex_task(
         task_record.error_type = type(e).__name__
         task_record.error_message = str(e)[:500]
         task_record.finished_at = now_kst()
+        # 실패한 prepare 도 child 를 안 만들고 종결되므로 게이트상 '처리됨'으로 카운트.
+        db.query(CrawlRun).filter(CrawlRun.id == run_id).update(
+            {CrawlRun.prepare_done_count: CrawlRun.prepare_done_count + 1}
+        )
         try:
             db.commit()
         except Exception:
@@ -825,7 +913,7 @@ def prepare_complex_task(
 # =============================================================================
 
 
-@celery_app.task(base=DatabaseTask, bind=True)
+@celery_app.task(base=DatabaseTask, bind=True, acks_late=False, reject_on_worker_lost=False)
 def run_kb_collection(
     self,
     job_id: int = None,
@@ -865,7 +953,10 @@ def run_kb_collection(
         # prepare 단계를 worker pool 로 분산 — master 는 단지마다 prepare 만 enqueue.
         # prepare_complex_task 가 ensure_* 후 collect_* child 들을 직접 enqueue 하고
         # CrawlRun.total_tasks 를 atomic 증가시킨다.
-        run.total_tasks = len(complexes)
+        # total_tasks 는 prepare 가 child 를 더하는 단일출처 — redeliver 시 덮어쓰지 않는다.
+        if not run.total_tasks:
+            run.total_tasks = len(complexes)
+        run.prepare_total = len(complexes)
         db.commit()
 
         for complex_obj in complexes:
@@ -915,6 +1006,54 @@ def discover_complexes_task(self, region_code: str) -> Dict[str, Any]:
 
 
 @celery_app.task(base=DatabaseTask, bind=True)
+def discover_active_regions(self) -> Dict[str, Any]:
+    """활성 배치 잡의 대상 지역을 시군구 단위로 펼쳐 단지 발견을 일괄 디스패치.
+
+    celery beat 가 주기 호출(주간). 신규 아파트를 자동 등록만 하고, 시세는 해당
+    지역의 다음 정기 수집(run_scheduled_job)이 가져간다 — 가격 수집 경로와 분리.
+    discover_complexes 는 시군구(5자리)/법정동(10자리)만 받으므로 시도(2자리) 잡은
+    이미 적재된 단지의 region_code 로 시군구를 역산해 펼친다.
+    """
+    from sqlalchemy import func
+
+    from src.models.crawl import CrawlJob, JobStatus
+
+    db = self.db
+    jobs = db.query(CrawlJob).filter(CrawlJob.status == JobStatus.ACTIVE).all()
+
+    sigungu_codes: set = set()
+    for job in jobs:
+        try:
+            cfg = json.loads(job.target_config) if job.target_config else {}
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if cfg.get("dong_code"):
+            sigungu_codes.add(cfg["dong_code"])
+        elif cfg.get("region_code"):
+            sigungu_codes.add(cfg["region_code"])
+        elif cfg.get("sido_code"):
+            rows = (
+                db.query(func.distinct(func.substr(Complex.region_code, 1, 5)))
+                .filter(
+                    Complex.region_code.like(f"{cfg['sido_code']}%"),
+                    Complex.is_active.is_(True),
+                    Complex.region_code.isnot(None),
+                )
+                .all()
+            )
+            sigungu_codes.update(r[0] for r in rows if r[0])
+
+    for code in sorted(sigungu_codes):
+        discover_complexes_task.delay(code)
+
+    logger.info(
+        f"[discover_active_regions] dispatched discovery for {len(sigungu_codes)} sigungu "
+        f"from {len(jobs)} active jobs"
+    )
+    return {"dispatched": len(sigungu_codes), "sigungu": sorted(sigungu_codes)}
+
+
+@celery_app.task(base=DatabaseTask, bind=True, acks_late=False, reject_on_worker_lost=False)
 def run_region_collection(
     self,
     region_code: str,
@@ -972,7 +1111,9 @@ def run_region_collection(
 
     # Step 3: prepare 단계를 worker pool 로 분산 (run_kb_collection 과 동일 패턴).
     # region 수집은 transaction 미포함이라 flag 로 분기.
-    run.total_tasks = len(complexes)
+    if not run.total_tasks:
+        run.total_tasks = len(complexes)
+    run.prepare_total = len(complexes)
     db.commit()
 
     for complex_obj in complexes:
@@ -992,7 +1133,7 @@ def run_region_collection(
     }
 
 
-@celery_app.task(base=DatabaseTask, bind=True)
+@celery_app.task(base=DatabaseTask, bind=True, acks_late=False, reject_on_worker_lost=False)
 def run_scheduled_job(self, job_id: int) -> Dict[str, Any]:
     """celery beat 가 cron 시점에 호출 — CrawlJob 의 target 에 따라 단지들을 모아 수집 trigger.
 
@@ -1049,23 +1190,49 @@ def run_scheduled_job(self, job_id: int) -> Dict[str, Any]:
 
 # ─── 좀비 RUNNING task/run 자동 정리 ───────────────────────────────────────────
 # Celery worker SIGSEGV/OOM 등으로 task 가 비정상 종료되면 DB 의 status 가
-# RUNNING/PENDING 인 채로 남는다. 이게 누적되면 통계가 오염되고 finalize 가
-# 안 끝난다. 5분마다 실행해서 일정 시간 이상 멈춰있는 task/run 을 FAILED 처리.
+# RUNNING/PENDING 인 채로 남는다. 5분마다 실행해서 정리한다.
+# run 은 절대 수명으로 판정하지 않는다 — 시도 단위 대규모 수집은 10시간 넘게
+# 정상 진행될 수 있다. 마지막 task 가 집어진 지 IDLE_MIN 넘도록 새 활동이
+# 없을 때만 worker 가 죽은 것으로 보고 좀비 처리한다.
 
-ZOMBIE_TASK_TIMEOUT_MIN = 60  # 60분 이상 RUNNING — 좀비
-ZOMBIE_RUN_TIMEOUT_MIN = 360  # 6시간 이상 RUNNING — 좀비 (대규모 수집 + KB rate limit 고려)
+ZOMBIE_TASK_TIMEOUT_MIN = 60  # task 가 60분 넘게 RUNNING — worker crash 로 간주
+ZOMBIE_RUN_IDLE_MIN = 60  # run 의 마지막 task 활동 후 60분 정체 — 좀비
+DRAIN_GRACE_MIN = 3  # 큐 0 + RUNNING/PENDING task 0 이 이만큼 유지되면 drain 완료로 정식 마감
+
+
+_COLLECTION_QUEUES = ("dispatch", "prepare", "fast", "slow")
+
+
+def _broker_queue_depth() -> int:
+    """수집 큐(dispatch/prepare/fast/slow) 미처리 메시지 합. 읽기 실패 시 -1 (drain 판정 보류).
+
+    run 의 모든 child 가 이 큐들에 분산되므로 drain 판정은 네 큐를 모두 합산해야 한다.
+    """
+    try:
+        import redis
+
+        client = redis.from_url(settings.celery_broker_url)
+        try:
+            return sum(int(client.llen(q)) for q in _COLLECTION_QUEUES)
+        finally:
+            client.close()
+    except Exception as e:
+        logger.warning(f"[cleanup] broker queue depth read failed: {e}")
+        return -1
 
 
 @celery_app.task
 def cleanup_zombie_runs() -> Dict[str, Any]:
-    """타임아웃을 넘긴 RUNNING task/run 을 FAILED 로 정리."""
+    """타임아웃을 넘긴 RUNNING task, task 활동이 멈춘 run 을 FAILED 로 정리."""
     from datetime import timedelta
+
+    from sqlalchemy import func
 
     db: Session = SessionLocal()
     try:
         now = now_kst()
         task_cutoff = now - timedelta(minutes=ZOMBIE_TASK_TIMEOUT_MIN)
-        run_cutoff = now - timedelta(minutes=ZOMBIE_RUN_TIMEOUT_MIN)
+        run_idle_cutoff = now - timedelta(minutes=ZOMBIE_RUN_IDLE_MIN)
 
         # 1) 좀비 task: started_at 이 task_cutoff 보다 오래된 RUNNING/PENDING
         zombie_tasks = (
@@ -1096,29 +1263,92 @@ def cleanup_zombie_runs() -> Dict[str, Any]:
             )
             t.finished_at = now
 
-        # 2) 좀비 run: started_at 이 run_cutoff 보다 오래된 RUNNING
+        # 1.5) drain-sweep: 완주 보장의 핵심 안전망.
+        #   큐가 비고(queue_depth==0) RUNNING/PENDING task 가 0 이며 마지막 활동이 grace 를
+        #   넘긴 run 은 완전히 빠진(drain) 것 → total_tasks 정확성과 무관하게 실제 집계로
+        #   정식 마감(SUCCESS/PARTIAL/FAILED). leaf push 트리거(_finalize)가 worker recycle
+        #   등으로 유실돼도 5분 내 유한시간 종결을 보장한다.
+        swept = 0
+        queue_depth = _broker_queue_depth()
+        if queue_depth == 0:
+            drain_grace_cutoff = now - timedelta(minutes=DRAIN_GRACE_MIN)
+            running_runs = (
+                db.query(CrawlRun)
+                .filter(
+                    CrawlRun.status == RunStatus.RUNNING,
+                    CrawlRun.started_at.isnot(None),
+                )
+                .all()
+            )
+            for r in running_runs:
+                counts = _run_status_counts(db, r.id)
+                if counts.get(TaskStatus.RUNNING, 0) + counts.get(TaskStatus.PENDING, 0) > 0:
+                    continue  # 아직 처리 중인 task 가 있으면 drain 아님
+                last_act = (
+                    db.query(func.max(func.coalesce(CrawlTask.started_at, CrawlTask.created_at)))
+                    .filter(CrawlTask.run_id == r.id)
+                    .scalar()
+                ) or r.started_at
+                if last_act >= drain_grace_cutoff:
+                    continue  # 방금 빈 것일 수 있음 — grace 동안 대기
+                prep_total = r.prepare_total or 0
+                prep_done = r.prepare_done_count or 0
+                incomplete = prep_total > 0 and prep_done < prep_total
+                reason = None
+                if incomplete:
+                    # 큐가 빈 채 prepare 미완 = prepare 메시지 유실 → 데이터 불완전.
+                    reason = (
+                        '{"reason": "drained_incomplete_prepares", '
+                        f'"prepare_done": {prep_done}, "prepare_total": {prep_total}}}'
+                    )
+                _apply_run_terminal(r, counts, reason=reason)
+                if incomplete:
+                    # 불완전 수집을 SUCCESS 로 위장하지 않는다.
+                    r.status = RunStatus.PARTIAL if r.success_count > 0 else RunStatus.FAILED
+                swept += 1
+
+        # 2) 좀비 run: 마지막 task 활동(started_at)이 idle_cutoff 보다 오래됐으면
+        #    worker 가 죽은 것. run 이 실제로 task 를 처리 중이면 살려둔다.
+        last_act = (
+            db.query(
+                CrawlTask.run_id.label("run_id"),
+                func.max(func.coalesce(CrawlTask.started_at, CrawlTask.created_at)).label("act"),
+            )
+            .group_by(CrawlTask.run_id)
+            .subquery()
+        )
         zombie_runs = (
             db.query(CrawlRun)
+            .outerjoin(last_act, last_act.c.run_id == CrawlRun.id)
             .filter(
                 CrawlRun.status.in_([RunStatus.RUNNING, RunStatus.PENDING]),
                 CrawlRun.started_at.isnot(None),
-                CrawlRun.started_at < run_cutoff,
+                func.coalesce(last_act.c.act, CrawlRun.started_at) < run_idle_cutoff,
             )
             .all()
         )
         for r in zombie_runs:
+            # 좀비로 마감하되 그 시점까지의 task 결과를 카운트에 반영 (0/0/0 오염 방지)
+            counts = dict(
+                db.query(CrawlTask.status, func.count())
+                .filter(CrawlTask.run_id == r.id)
+                .group_by(CrawlTask.status)
+                .all()
+            )
+            r.success_count = counts.get(TaskStatus.SUCCESS, 0)
+            r.failed_count = counts.get(TaskStatus.FAILED, 0)
+            r.skipped_count = counts.get(TaskStatus.SKIPPED, 0)
             r.status = RunStatus.FAILED
             r.finished_at = now
-            r.error_summary = (
-                f'{{"reason": "zombie_timeout", "stuck_for_min": ' f"{ZOMBIE_RUN_TIMEOUT_MIN}}}"
-            )
+            r.error_summary = f'{{"reason": "zombie_idle", "idle_min": {ZOMBIE_RUN_IDLE_MIN}}}'
 
         db.commit()
         result = {
             "tasks_cleaned": len(zombie_tasks) + len(zombie_pending),
             "runs_cleaned": len(zombie_runs),
+            "runs_finalized": swept,
         }
-        if result["tasks_cleaned"] or result["runs_cleaned"]:
+        if any(result.values()):
             logger.warning(f"[cleanup_zombie_runs] {result}")
         return result
     except Exception as e:
@@ -1413,14 +1643,7 @@ def collect_molit_transaction_task(
 
     db = self.db
     task_key = f"molit_transaction_{region_code}_{contract_month}"
-    task_record = CrawlTask(
-        run_id=run_id,
-        task_key=task_key,
-        status=TaskStatus.RUNNING,
-        started_at=now_kst(),
-    )
-    db.add(task_record)
-    db.commit()
+    task_record = _begin_task(db, run_id, task_key)
 
     try:
         conn = MolitTransactionConnector(rate_limit_per_minute=settings.molit_rate_limit_per_minute)

@@ -17,6 +17,7 @@ from src.connectors.kb_base import KBBaseConnector
 from src.connectors.kb_endpoints import (
     COMPLEX_DETAIL,
     COMPLEX_SEARCH,
+    REGION_DONG,
     REGION_SIGUNGU,
 )
 from src.models.complex import Area, Complex, PriorityLevel
@@ -184,110 +185,125 @@ class ComplexDiscoveryService:
         self.db.commit()
 
     async def _fetch_complex_list(self, region_code: str) -> List[dict]:
-        """KB에서 단지 목록 — 시군구 박스를 5x5 그리드로 분할 호출.
+        """KB 의 법정동 리스트 + 좌표를 받아 각 법정동 중심 박스로 호출.
 
-        시군구 한 번 호출은 작은 박스로 일부만 반환됨. 그리드로 빠짐없이 커버.
+        과거 grid 12x12 (144 호출/시군구) 방식은 외곽 읍·면(예: 마산회원구 내서읍)을
+        못 덮는 한계가 있었음. 법정동 단위로 KB 가 직접 알려주는 중심좌표를 쓰면
+        시군구당 N 호출(보통 9~25) 로 누락 없이 커버.
         """
-        # 지역 좌표 구하기. 못 찾으면 검색 중단 — 서울 fallback 으로 잘못된 단지가
-        # 등록되는 것 방지 (예: 41530 같이 폐지된 옛 군 코드).
-        coords = None
+        sido_name = self._sido_name_for(region_code)
+
+        # 1) 시군구 메타 → 시군구명 매칭
         try:
-            coords = await self._get_region_coords(region_code)
+            sg_data = await self._connector._fetch_via_http(REGION_SIGUNGU, {"시도명": sido_name})
+            sigungu_list = sg_data.get("dataBody", {}).get("data", [])
         except Exception as e:
-            logger.warning(f"좌표 조회 실패 {region_code}: {e}")
-        if not coords:
-            logger.warning(f"좌표를 찾을 수 없음: {region_code}. 알 수 없는 행정코드일 수 있음.")
+            logger.warning(f"시군구 조회 실패 {region_code}: {e}")
+            return await self._fetch_complex_list_via_browser(region_code)
+
+        sigungu_name = None
+        for sg in sigungu_list:
+            if sg.get("법정동코드", "").startswith(region_code[:5]):
+                sigungu_name = sg.get("시군구명")
+                break
+        if not sigungu_name:
+            logger.warning(
+                f"시군구명을 찾을 수 없음: {region_code}. 알 수 없는 행정코드일 수 있음."
+            )
             return []
-        lat, lng = coords
 
-        # 시군구 전체 박스 (반경 약 3.3km)
-        half_extent = 0.03
-        grid_n = 5
-        step = (half_extent * 2) / grid_n
-        cell_offset = step / 2 + 0.001  # 약간 겹쳐서 셀 경계 빈공간 방지
+        # 2) 시군구 → 법정동 리스트 (각 법정동 wgs84 중심좌표 포함)
+        try:
+            dong_data = await self._connector._fetch_via_http(
+                REGION_DONG, {"시도명": sido_name, "시군구명": sigungu_name}
+            )
+            dong_list = dong_data.get("dataBody", {}).get("data", [])
+        except Exception as e:
+            logger.warning(f"법정동 조회 실패 {region_code} ({sigungu_name}): {e}")
+            return await self._fetch_complex_list_via_browser(region_code)
 
+        # 10자리 법정동 코드 입력이면 해당 법정동만 처리
+        if len(region_code) >= 10:
+            dong_list = [
+                d for d in dong_list if d.get("법정동코드", "").startswith(region_code[:10])
+            ]
+        if not dong_list:
+            logger.warning(f"법정동 리스트 비어있음: {region_code} ({sigungu_name})")
+            return []
+
+        # 3) 각 법정동 중심 ± 0.025 박스로 단지 검색 (반경 ~2.5km)
+        half = 0.025
         seen_kb_ids: set = set()
         all_complexes: List[dict] = []
-        success_cells = 0
+        success_dongs = 0
 
-        for i in range(grid_n):
-            for j in range(grid_n):
-                cell_lat = lat - half_extent + step * (i + 0.5)
-                cell_lng = lng - half_extent + step * (j + 0.5)
-                params = {
-                    "selectCode": "1,2,3",
-                    "zoomLevel": 16,
-                    "물건종류": "01",
-                    "거래유형": "1,2,3",
-                    "webCheck": "Y",
-                    "startLat": cell_lat - cell_offset,
-                    "startLng": cell_lng - cell_offset,
-                    "endLat": cell_lat + cell_offset,
-                    "endLng": cell_lng + cell_offset,
-                }
-                try:
-                    data = await self._connector._fetch_via_http(COMPLEX_SEARCH, params)
-                    cell_list = self._extract_complex_list(data)
-                    for c in cell_list:
-                        kb_id = self._extract_kb_id(c)
-                        if kb_id and kb_id not in seen_kb_ids:
-                            seen_kb_ids.add(kb_id)
-                            all_complexes.append(c)
-                    success_cells += 1
-                except (NetworkError, BrowserError, Exception) as e:
-                    logger.warning(f"grid cell ({i},{j}) for {region_code}: {e}")
+        for d in dong_list:
+            try:
+                lat = float(d.get("wgs84중심위도", 0))
+                lng = float(d.get("wgs84중심경도", 0))
+            except (TypeError, ValueError):
+                continue
+            if not (lat and lng):
+                continue
+            params = {
+                "selectCode": "1,2,3",
+                "zoomLevel": 16,
+                "물건종류": "01",
+                "거래유형": "1,2,3",
+                "webCheck": "Y",
+                "startLat": lat - half,
+                "startLng": lng - half,
+                "endLat": lat + half,
+                "endLng": lng + half,
+            }
+            try:
+                data = await self._connector._fetch_via_http(COMPLEX_SEARCH, params)
+                cell_list = self._extract_complex_list(data)
+                for c in cell_list:
+                    kb_id = self._extract_kb_id(c)
+                    if kb_id and kb_id not in seen_kb_ids:
+                        seen_kb_ids.add(kb_id)
+                        all_complexes.append(c)
+                success_dongs += 1
+            except (NetworkError, BrowserError, Exception) as e:
+                logger.warning(f"법정동 박스 호출 실패 {d.get('법정동명')} ({region_code}): {e}")
 
         logger.info(
-            f"Discovery {region_code}: grid {success_cells}/{grid_n*grid_n} cells, "
+            f"Discovery {region_code}: dong {success_dongs}/{len(dong_list)}, "
             f"{len(all_complexes)} unique complexes"
         )
 
         if all_complexes:
             return all_complexes
 
-        # 그리드 모두 실패 시 브라우저 폴백
-        logger.warning(f"All grid cells failed for {region_code}, browser fallback")
+        logger.warning(f"All dong-based calls returned 0 for {region_code}, browser fallback")
         return await self._fetch_complex_list_via_browser(region_code)
 
-    async def _get_region_coords(self, region_code: str) -> Optional[tuple]:
-        """지역코드에서 중심 좌표 반환"""
-        try:
-            # 시군구 목록에서 좌표 찾기
-            sido_map = {
-                "11": "서울시",
-                "26": "부산시",
-                "27": "대구시",
-                "28": "인천시",
-                "29": "광주시",
-                "30": "대전시",
-                "31": "울산시",
-                "36": "세종시",
-                "41": "경기도",
-                "42": "강원도",
-                "43": "충청북도",
-                "44": "충청남도",
-                "45": "전라북도",
-                "46": "전라남도",
-                "47": "경상북도",
-                "48": "경상남도",
-                "50": "제주도",
-                "51": "강원도",
-                "52": "전라북도",
-            }
-            sido_code = region_code[:2]
-            sido_name = sido_map.get(sido_code, "서울시")
-
-            data = await self._connector._fetch_via_http(REGION_SIGUNGU, {"시도명": sido_name})
-            sigungu_list = data.get("dataBody", {}).get("data", [])
-            for sg in sigungu_list:
-                if sg.get("법정동코드", "").startswith(region_code[:5]):
-                    lat = float(sg.get("wgs84중심위도", 0))
-                    lng = float(sg.get("wgs84중심경도", 0))
-                    if lat and lng:
-                        return (lat, lng)
-        except Exception as e:
-            logger.debug(f"Failed to get region coords: {e}")
-        return None
+    @staticmethod
+    def _sido_name_for(region_code: str) -> str:
+        """region_code 앞 2자리로 KB 가 받는 시도명을 반환."""
+        sido_map = {
+            "11": "서울시",
+            "26": "부산시",
+            "27": "대구시",
+            "28": "인천시",
+            "29": "광주시",
+            "30": "대전시",
+            "31": "울산시",
+            "36": "세종시",
+            "41": "경기도",
+            "42": "강원도",
+            "43": "충청북도",
+            "44": "충청남도",
+            "45": "전라북도",
+            "46": "전라남도",
+            "47": "경상북도",
+            "48": "경상남도",
+            "50": "제주도",
+            "51": "강원도",
+            "52": "전라북도",
+        }
+        return sido_map.get(region_code[:2], "서울시")
 
     async def _fetch_complex_list_via_browser(self, region_code: str) -> List[dict]:
         """브라우저로 단지 목록 탐색"""

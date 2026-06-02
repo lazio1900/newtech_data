@@ -20,4 +20,7 @@ export const runsApi = {
     apiClient
       .get<CrawlTask[]>(`/api/runs/${runId}/tasks`, { params })
       .then((r) => r.data),
+
+  cancel: (id: number) =>
+    apiClient.post(`/api/runs/${id}/cancel`).then((r) => r.data),
 }

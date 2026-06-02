@@ -1,6 +1,7 @@
 services:
   # Admin API (FastAPI)
   admin-api:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: docker/api.Dockerfile
@@ -14,10 +15,11 @@ services:
     volumes:
       - ./src:/app/src
       - ./alembic.ini:/app/alembic.ini
-    command: uvicorn src.admin_api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir src/admin_api
+    command: gunicorn src.admin_api.main:app -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:8000 --timeout 120 --graceful-timeout 30 --max-requests 1000 --max-requests-jitter 100
 
-  # Celery Worker
-  celery-worker:
+  # Celery Worker — fast (dispatch/prepare/price/transaction/molit + 시스템 큐)
+  celery-worker-fast:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
@@ -33,10 +35,31 @@ services:
       KB_REFRESH_TOKEN: ${KB_REFRESH_TOKEN:-}
     volumes:
       - ./src:/app/src
-    command: celery -A src.workers.celery_app worker --pool=prefork --concurrency=4 --loglevel=info
+    command: celery -A src.workers.celery_app worker --pool=prefork --concurrency=4 -Q dispatch,prepare,fast,celery -n fast@%h --loglevel=info
+
+  # Celery Worker — slow (listing 전용, transient 백오프가 fast 슬롯을 막지 않도록 격리)
+  celery-worker-slow:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://kb_user:change-me-in-production@postgres:5432/kb_estate
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      PYTHONFAULTHANDLER: "1"
+      KB_LOGIN_ID: ${KB_LOGIN_ID:-}
+      KB_LOGIN_PASSWORD: ${KB_LOGIN_PASSWORD:-}
+      KB_ACCESS_TOKEN: ${KB_ACCESS_TOKEN:-}
+      KB_REFRESH_TOKEN: ${KB_REFRESH_TOKEN:-}
+    volumes:
+      - ./src:/app/src
+    command: celery -A src.workers.celery_app worker --pool=prefork --concurrency=2 -Q slow -n slow@%h --loglevel=info
 
   # Celery Beat (Scheduler)
   celery-beat:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
@@ -51,6 +74,7 @@ services:
 
   # Frontend (Vite dev server)
   frontend:
+    restart: unless-stopped
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react"
 import { useParams, useNavigate, Link } from "react-router-dom"
-import { ArrowLeft, Building2 } from "lucide-react"
+import { ArrowLeft, Building2, Ban } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -14,8 +15,9 @@ import {
 import PageHeader from "@/components/layout/PageHeader"
 import StatusBadge from "@/components/shared/StatusBadge"
 import EmptyState from "@/components/shared/EmptyState"
+import ConfirmDialog from "@/components/shared/ConfirmDialog"
 import Pagination, { paginate } from "@/components/shared/Pagination"
-import { useRun, useRunTasks } from "@/hooks/useRuns"
+import { useRun, useRunTasks, useRunCancel } from "@/hooks/useRuns"
 import {
   RUN_STATUS_LABELS,
   TASK_STATUS_LABELS,
@@ -39,6 +41,8 @@ export default function RunDetailPage() {
   const runId = Number(id)
 
   const { data: run, isLoading } = useRun(runId)
+  const cancelMutation = useRunCancel()
+  const [confirmCancel, setConfirmCancel] = useState(false)
   const [taskFilter, setTaskFilter] = useState<string | undefined>()
   const [taskPage, setTaskPage] = useState(1)
   const [taskPageSize, setTaskPageSize] = useState(10)
@@ -58,15 +62,35 @@ export default function RunDetailPage() {
     return <EmptyState message="실행을 찾을 수 없습니다" />
   }
 
+  const done = run.success_count + run.failed_count + run.skipped_count
+  const pct =
+    run.total_tasks > 0 ? Math.min(100, Math.round((done / run.total_tasks) * 100)) : 0
+  const isActive = run.status === "running" || run.status === "pending"
+  const prepPending =
+    (run.prepare_total ?? 0) > 0 && (run.prepare_done_count ?? 0) < (run.prepare_total ?? 0)
+
   return (
     <div>
       <PageHeader
         title={`실행 #${run.id}`}
         actions={
-          <Button variant="ghost" size="sm" onClick={() => navigate("/runs")}>
-            <ArrowLeft className="mr-1.5 h-4 w-4" />
-            목록
-          </Button>
+          <div className="flex gap-2">
+            {isActive && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setConfirmCancel(true)}
+                disabled={cancelMutation.isPending}
+              >
+                <Ban className="mr-1.5 h-4 w-4" />
+                취소
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => navigate("/runs")}>
+              <ArrowLeft className="mr-1.5 h-4 w-4" />
+              목록
+            </Button>
+          </div>
         }
       />
 
@@ -99,12 +123,29 @@ export default function RunDetailPage() {
 
       <div className="mb-6 grid gap-2 text-sm sm:grid-cols-2">
         <div className="rounded-md border p-3">
-          <span className="text-muted-foreground">태스크</span>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">태스크</span>
+            {isActive && prepPending && (
+              <span className="rounded-full bg-jb-primary-light px-2 py-0.5 text-xs text-jb-primary-main">
+                분모 산정 중 (prepare {run.prepare_done_count ?? 0}/{run.prepare_total ?? 0})
+              </span>
+            )}
+          </div>
           <p className="mt-1 font-medium">
             총 {run.total_tasks} / 성공{" "}
             <span className="text-jb-sys-success">{run.success_count}</span> / 실패{" "}
             <span className="text-jb-sys-error">{run.failed_count}</span> / 스킵{" "}
             {run.skipped_count}
+          </p>
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-jb-bg-default">
+            <div
+              className="h-full rounded-full bg-jb-primary-main transition-all"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {done}/{run.total_tasks} ({pct}%)
+            {isActive && prepPending ? " · 대상 산정 중이라 분모가 늘 수 있음" : ""}
           </p>
         </div>
         <div className="rounded-md border p-3">
@@ -219,6 +260,22 @@ export default function RunDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={confirmCancel}
+        onOpenChange={setConfirmCancel}
+        title="수집 실행 취소"
+        description={`실행 #${run.id} 을(를) 취소합니다. 남은 대기 태스크는 처리되지 않습니다.`}
+        confirmLabel="취소 실행"
+        destructive
+        onConfirm={() => {
+          cancelMutation.mutate(run.id, {
+            onSuccess: () => toast.success("실행을 취소했습니다"),
+            onError: () => toast.error("취소에 실패했습니다"),
+          })
+          setConfirmCancel(false)
+        }}
+      />
     </div>
   )
 }

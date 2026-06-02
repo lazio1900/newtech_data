@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # Rate Limiting
     default_rate_limit_per_minute: int = 60
     kb_rate_limit_per_minute: int = 20
+    # 전역 KB 호출률 상한(분당). 모든 워커에 걸친 Redis 토큰버킷 ceiling — 현재 관측
+    # throughput(~90-120/min)을 넘기는 보수적 기본값이라 평소엔 거의 안 걸리고 동시성을
+    # 올렸을 때의 버스트만 막는다. KB 차단이 보이면 낮춘다.
+    kb_global_rate_limit_per_minute: int = 150
     molit_rate_limit_per_minute: int = 60
 
     # 국토교통부 실거래가 OpenAPI

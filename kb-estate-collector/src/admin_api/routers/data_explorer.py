@@ -110,31 +110,12 @@ def get_transactions(
 def get_listings(
     complex_id: Optional[int] = None,
     status: Optional[str] = None,
-    history: bool = False,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),  # noqa: B008
 ):
-    """매물 데이터 조회. 기본은 source_listing_id 별 최신 snapshot 만 반환.
-    history=true 면 시계열 row 전부 반환."""
-    from sqlalchemy import func
-
-    if history:
-        query = db.query(Listing)
-    else:
-        latest = (
-            db.query(
-                Listing.source_listing_id.label("sid"),
-                func.max(Listing.fetched_at).label("max_at"),
-            )
-            .group_by(Listing.source_listing_id)
-            .subquery()
-        )
-        query = db.query(Listing).join(
-            latest,
-            (Listing.source_listing_id == latest.c.sid) & (Listing.fetched_at == latest.c.max_at),
-        )
-
+    """매물 데이터 조회. source_listing_id UNIQUE — 1 source = 1 row."""
+    query = db.query(Listing)
     if complex_id:
         query = query.filter(Listing.complex_id == complex_id)
     if status:

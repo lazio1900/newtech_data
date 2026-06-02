@@ -1,13 +1,15 @@
-from datetime import datetime
-from src.core.time import now_kst
-from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, ForeignKey, Index, Boolean
-from sqlalchemy.orm import relationship
 import enum
+
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.orm import relationship
+
 from src.core.database import Base
+from src.core.time import now_kst
 
 
 class JobType(str, enum.Enum):
     """수집 작업 유형"""
+
     KB_PRICE = "kb_price"
     KB_LISTING = "kb_listing"
     KB_TRANSACTION = "kb_transaction"
@@ -17,6 +19,7 @@ class JobType(str, enum.Enum):
 
 class JobStatus(str, enum.Enum):
     """작업 상태"""
+
     ACTIVE = "active"
     PAUSED = "paused"
     DISABLED = "disabled"
@@ -24,6 +27,7 @@ class JobStatus(str, enum.Enum):
 
 class RunStatus(str, enum.Enum):
     """실행 상태"""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -34,6 +38,7 @@ class RunStatus(str, enum.Enum):
 
 class TaskStatus(str, enum.Enum):
     """태스크 상태"""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -51,25 +56,25 @@ class CrawlJob(Base):
     name = Column(String(200), nullable=False, unique=True, comment="작업명")
     job_type = Column(Enum(JobType), nullable=False, comment="작업 유형")
     description = Column(Text, nullable=True, comment="설명")
-    
+
     # 대상 설정
     target_config = Column(Text, nullable=True, comment="대상 설정 (JSON)")
-    
+
     # 스케줄
     cron_schedule = Column(String(100), nullable=True, comment="Cron 스케줄")
-    
+
     # 동시성 및 레이트 제한
     max_concurrency = Column(Integer, default=5, comment="최대 동시 처리 수")
     rate_limit_per_minute = Column(Integer, default=60, comment="분당 요청 제한")
-    
+
     # 상태
     status = Column(Enum(JobStatus), default=JobStatus.ACTIVE, comment="작업 상태")
-    
+
     # 메타데이터
     created_at = Column(DateTime, default=now_kst)
     updated_at = Column(DateTime, default=now_kst, onupdate=now_kst)
     created_by = Column(String(100), nullable=True, comment="생성자")
-    
+
     # Relationships
     runs = relationship("CrawlRun", back_populates="job", cascade="all, delete-orphan")
 
@@ -81,32 +86,40 @@ class CrawlRun(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     job_id = Column(Integer, ForeignKey("crawl_jobs.id"), nullable=True)
-    
+
     # 실행 정보
     status = Column(Enum(RunStatus), default=RunStatus.PENDING, comment="실행 상태")
     started_at = Column(DateTime, nullable=True, comment="시작 시각")
     finished_at = Column(DateTime, nullable=True, comment="종료 시각")
-    
+
     # 통계
     total_tasks = Column(Integer, default=0, comment="총 태스크 수")
     success_count = Column(Integer, default=0, comment="성공 건수")
     failed_count = Column(Integer, default=0, comment="실패 건수")
     skipped_count = Column(Integer, default=0, comment="스킵 건수")
-    
+
+    # prepare 단계 진행 추적 (대용량 run 완료 게이트 + drain-sweep 마감 판정)
+    prepare_total = Column(
+        Integer, nullable=False, server_default="0", comment="prepare 태스크 총 수 (=대상 단지 수)"
+    )
+    prepare_done_count = Column(
+        Integer, nullable=False, server_default="0", comment="완료(성공/실패)된 prepare 태스크 수"
+    )
+
     # 에러 정보
     error_summary = Column(Text, nullable=True, comment="에러 요약 (JSON)")
-    
+
     # 품질 지표
     quality_warnings = Column(Text, nullable=True, comment="품질 경고 (JSON)")
-    
+
     # 메타데이터
     created_at = Column(DateTime, default=now_kst)
     triggered_by = Column(String(100), nullable=True, comment="실행 트리거 (user/schedule)")
-    
+
     # Relationships
     job = relationship("CrawlJob", back_populates="runs")
     tasks = relationship("CrawlTask", back_populates="run", cascade="all, delete-orphan")
-    
+
     __table_args__ = (
         Index("idx_run_job_status", "job_id", "status"),
         Index("idx_run_started", "started_at"),
@@ -120,35 +133,35 @@ class CrawlTask(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     run_id = Column(Integer, ForeignKey("crawl_runs.id"), nullable=False)
-    
+
     # 태스크 정보
     task_key = Column(String(200), nullable=False, comment="태스크 키 (complex_id, area_id 등)")
     status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, comment="태스크 상태")
-    
+
     # 실행 정보
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     retry_count = Column(Integer, default=0, comment="재시도 횟수")
-    
+
     # 에러 정보
     error_type = Column(String(100), nullable=True, comment="에러 유형")
     error_message = Column(Text, nullable=True, comment="에러 메시지")
     error_traceback = Column(Text, nullable=True, comment="에러 스택")
-    
+
     # 결과
     items_collected = Column(Integer, default=0, comment="수집 건수")
     items_saved = Column(Integer, default=0, comment="저장 건수")
-    
+
     # 메타데이터
     created_at = Column(DateTime, default=now_kst)
-    
+
     # Relationships
     run = relationship("CrawlRun", back_populates="tasks")
     raw_payloads = relationship("RawPayload", back_populates="task", cascade="all, delete-orphan")
-    
+
     __table_args__ = (
         Index("idx_task_run_status", "run_id", "status"),
-        Index("idx_task_key", "task_key"),
+        Index("uq_task_run_key", "run_id", "task_key", unique=True),
     )
 
 
@@ -159,24 +172,24 @@ class RawPayload(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(Integer, ForeignKey("crawl_tasks.id"), nullable=False)
-    
+
     # 원문 정보
     payload_type = Column(String(50), nullable=False, comment="payload 유형 (json/html)")
     content_hash = Column(String(64), nullable=False, comment="콘텐츠 해시")
-    
+
     # 저장 위치
     storage_path = Column(String(500), nullable=True, comment="저장 경로 (S3 등)")
     inline_content = Column(Text, nullable=True, comment="인라인 저장 (작은 경우)")
-    
+
     # 메타데이터
     size_bytes = Column(Integer, nullable=True, comment="크기 (바이트)")
     compressed = Column(Boolean, default=False, comment="압축 여부")
-    
+
     created_at = Column(DateTime, default=now_kst)
-    
+
     # Relationships
     task = relationship("CrawlTask", back_populates="raw_payloads")
-    
+
     __table_args__ = (
         Index("idx_payload_hash", "content_hash"),
         Index("idx_payload_created", "created_at"),

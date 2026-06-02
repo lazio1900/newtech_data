@@ -111,7 +111,7 @@ class Listing(Base):
     id = Column(Integer, primary_key=True, index=True)
     complex_id = Column(Integer, ForeignKey("complexes.id"), nullable=False)
 
-    # 매물 정보. snapshot 누적 구조 — (source_listing_id, fetched_at) 조합이 unique.
+    # 매물 정보. source_listing_id UNIQUE — 단지의 현재 호가만 유지(upsert + REMOVED 전이).
     source_listing_id = Column(String(100), nullable=False, comment="원천 매물 ID")
     ask_price = Column(
         BigInteger, nullable=False, comment="호가 (원). trade_type 별 매매가/전세가/월세 보증금"
@@ -139,5 +139,5 @@ class Listing(Base):
     __table_args__ = (
         Index("idx_listing_complex_status", "complex_id", "status"),
         Index("idx_listing_fetched", "fetched_at"),
-        Index("idx_listing_source_fetched", "source_listing_id", "fetched_at", unique=True),
+        Index("ix_listings_source_listing_id", "source_listing_id", unique=True),
     )

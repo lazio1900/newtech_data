@@ -1,6 +1,7 @@
 import logging
 
 from celery import Celery
+from celery.schedules import crontab
 from celery.signals import worker_shutdown
 
 from src.core.config import settings
@@ -40,12 +41,35 @@ celery_app.conf.update(
 # Auto-discover tasks
 celery_app.autodiscover_tasks(["src.workers"])
 
+# 큐 분리: 느린 listing 을 빠른 price/tx 와 격리해 head-of-line blocking 제거.
+#   dispatch  — fan-out 디스패처 (run_kb_collection/run_region_collection/run_scheduled_job)
+#   prepare   — 단지 prepare (detail/facility/area ensure + child enqueue)
+#   fast      — price/transaction/molit (가볍고 빠름)
+#   slow      — listing (매물, transient 백오프로 단지당 최대 17초)
+# 미지정 task(cleanup_zombie_runs/discover/backfill)는 기본 'celery' 큐.
+celery_app.conf.task_routes = {
+    "src.workers.tasks.run_kb_collection": {"queue": "dispatch"},
+    "src.workers.tasks.run_region_collection": {"queue": "dispatch"},
+    "src.workers.tasks.run_scheduled_job": {"queue": "dispatch"},
+    "src.workers.tasks.prepare_complex_task": {"queue": "prepare"},
+    "src.workers.tasks.collect_kb_price_task": {"queue": "fast"},
+    "src.workers.tasks.collect_kb_transaction_task": {"queue": "fast"},
+    "src.workers.tasks.collect_molit_transaction_task": {"queue": "fast"},
+    "src.workers.tasks.collect_kb_listing_task": {"queue": "slow"},
+}
+
 # 정적 beat schedule (사용자 정의 cron 은 RedBeat 에 동적 등록되지만,
 # zombie cleanup 같은 시스템 task 는 코드로 고정)
 celery_app.conf.beat_schedule = {
     "cleanup-zombie-runs": {
         "task": "src.workers.tasks.cleanup_zombie_runs",
         "schedule": 300.0,  # 5분마다
+    },
+    # 주간 단지 발견 — 활성 잡 지역의 신규 아파트를 자동 등록.
+    # 일 20:00 KST: 가격 잡(01·05·10·13시)과 겹치지 않고 다음 수집 사이클 직전.
+    "discover-active-regions": {
+        "task": "src.workers.tasks.discover_active_regions",
+        "schedule": crontab(hour=20, minute=0, day_of_week=0),
     },
 }
 

@@ -11,6 +11,8 @@ export interface CrawlRun {
   success_count: number
   failed_count: number
   skipped_count: number
+  prepare_total?: number
+  prepare_done_count?: number
   created_at: string
   target_summary?: string
 }
