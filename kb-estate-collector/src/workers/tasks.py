@@ -847,13 +847,7 @@ def prepare_complex_task(
         per_area = 2 if enqueue_transaction else 1
         new_count = len(areas) * per_area + 1  # +1 = listing
 
-        # 1. total_tasks 먼저 증가 (child 가 먼저 끝나도 _finalize 가 헛돌지 않도록)
-        db.query(CrawlRun).filter(CrawlRun.id == run_id).update(
-            {CrawlRun.total_tasks: CrawlRun.total_tasks + new_count}
-        )
-        db.commit()
-
-        # 2. child enqueue
+        # 1. child enqueue (areas 는 위에서 commit 됨 — 자식이 자기 세션에서 row 를 본다)
         for area in areas:
             collect_kb_price_task.delay(
                 run_id=run_id,
@@ -871,11 +865,18 @@ def prepare_complex_task(
             complex_id=complex_id,
         )
 
-        # 3. prepare 자기 SUCCESS + prepare_done_count 증가 (완료 게이트용)
+        # 2. prepare SUCCESS + total_tasks/prepare_done_count 를 한 트랜잭션에서 1회만 증가.
+        #    증가를 SUCCESS commit 과 묶는다 — already_done 가드는 SUCCESS row 만 잡으므로,
+        #    증가를 SUCCESS 이전에 두면 크래시 후 redeliver(acks_late) 재실행 시 보상 행 없이
+        #    total 이 두 번 더해진다(phantom). child 가 먼저 끝나도 완료 게이트
+        #    (prepare_done < prepare_total)가 헛 finalize 를 막으므로 증가가 늦어도 안전.
         task_record.status = TaskStatus.SUCCESS
         task_record.finished_at = now_kst()
         db.query(CrawlRun).filter(CrawlRun.id == run_id).update(
-            {CrawlRun.prepare_done_count: CrawlRun.prepare_done_count + 1}
+            {
+                CrawlRun.total_tasks: CrawlRun.total_tasks + new_count,
+                CrawlRun.prepare_done_count: CrawlRun.prepare_done_count + 1,
+            }
         )
         db.commit()
 
@@ -1031,6 +1032,8 @@ def discover_active_regions(self) -> Dict[str, Any]:
             sigungu_codes.add(cfg["dong_code"])
         elif cfg.get("region_code"):
             sigungu_codes.add(cfg["region_code"])
+        elif cfg.get("region_codes"):
+            sigungu_codes.update(cfg["region_codes"])
         elif cfg.get("sido_code"):
             rows = (
                 db.query(func.distinct(func.substr(Complex.region_code, 1, 5)))
@@ -1160,6 +1163,9 @@ def run_scheduled_job(self, job_id: int) -> Dict[str, Any]:
         q = q.filter(Complex.dong_code == cfg["dong_code"])
     elif cfg.get("region_code"):
         q = q.filter(Complex.region_code == cfg["region_code"])
+    elif cfg.get("region_codes"):
+        # 시군구 묶음 타겟 — 대형 시도(서울/경기)를 하루치 청크로 쪼갠 배치용
+        q = q.filter(Complex.region_code.in_(cfg["region_codes"]))
     elif cfg.get("sido_code"):
         q = q.filter(Complex.region_code.like(f"{cfg['sido_code']}%"))
     else:
@@ -1198,6 +1204,9 @@ def run_scheduled_job(self, job_id: int) -> Dict[str, Any]:
 ZOMBIE_TASK_TIMEOUT_MIN = 60  # task 가 60분 넘게 RUNNING — worker crash 로 간주
 ZOMBIE_RUN_IDLE_MIN = 60  # run 의 마지막 task 활동 후 60분 정체 — 좀비
 DRAIN_GRACE_MIN = 3  # 큐 0 + RUNNING/PENDING task 0 이 이만큼 유지되면 drain 완료로 정식 마감
+WORKER_LIVENESS_MIN = (
+    10  # 이 시간 내 전역 task 활동이 있으면 worker 생존 — 큐 대기 중인 run 은 좀비 보류
+)
 
 
 _COLLECTION_QUEUES = ("dispatch", "prepare", "fast", "slow")
@@ -1293,19 +1302,40 @@ def cleanup_zombie_runs() -> Dict[str, Any]:
                     continue  # 방금 빈 것일 수 있음 — grace 동안 대기
                 prep_total = r.prepare_total or 0
                 prep_done = r.prepare_done_count or 0
-                incomplete = prep_total > 0 and prep_done < prep_total
+                finished = (
+                    counts.get(TaskStatus.SUCCESS, 0)
+                    + counts.get(TaskStatus.FAILED, 0)
+                    + counts.get(TaskStatus.SKIPPED, 0)
+                )
+                total = r.total_tasks or 0
+                prepares_incomplete = prep_total > 0 and prep_done < prep_total
+                # prepare 는 다 됐는데 child 가 total 에 못 미치면 = child 메시지 유실/미실행.
+                # prepare_done 만 보고 SUCCESS 로 위장하지 않도록 child 기준도 본다.
+                children_incomplete = total > 0 and finished < total
+                incomplete = prepares_incomplete or children_incomplete
                 reason = None
-                if incomplete:
+                if prepares_incomplete:
                     # 큐가 빈 채 prepare 미완 = prepare 메시지 유실 → 데이터 불완전.
                     reason = (
                         '{"reason": "drained_incomplete_prepares", '
                         f'"prepare_done": {prep_done}, "prepare_total": {prep_total}}}'
+                    )
+                elif children_incomplete:
+                    reason = (
+                        '{"reason": "drained_incomplete_children", '
+                        f'"finished": {finished}, "total_tasks": {total}}}'
                     )
                 _apply_run_terminal(r, counts, reason=reason)
                 if incomplete:
                     # 불완전 수집을 SUCCESS 로 위장하지 않는다.
                     r.status = RunStatus.PARTIAL if r.success_count > 0 else RunStatus.FAILED
                 swept += 1
+
+        # drain-sweep 가 방금 마감한 run(PARTIAL/SUCCESS/FAILED)을 아래 zombie 쿼리가
+        # 다시 집어 zombie_idle/FAILED 로 덮어쓰지 않도록 flush — autoflush=False 라
+        # flush 없이는 status IN(RUNNING,PENDING) 필터가 미반영 상태(DB값)로 평가되고
+        # identity-map 이 같은 인스턴스를 반환해 drained_incomplete_* 마킹이 유실된다.
+        db.flush()
 
         # 2) 좀비 run: 마지막 task 활동(started_at)이 idle_cutoff 보다 오래됐으면
         #    worker 가 죽은 것. run 이 실제로 task 를 처리 중이면 살려둔다.
@@ -1327,6 +1357,29 @@ def cleanup_zombie_runs() -> Dict[str, Any]:
             )
             .all()
         )
+
+        # worker 가 살아서 공유 큐를 비우는 중이면, 대형 run 이 fast/slow 큐를 선점한 동안
+        # 소형 run 의 child 가 아직 broker 에서 대기 중인 것 — idle 처럼 보여도 좀비가 아니다.
+        # queue_depth != 0 (메시지 잔존, 또는 -1=broker 읽기 실패) + 최근 전역 task 활동이면
+        # child 도착 전이므로 죽이지 않고 기다린다. queue_depth==0 이면 위 drain-sweep 이
+        # 정식 마감하므로 가드 불필요 — 이때 workers_alive 풀스캔도 단락으로 생략한다.
+        # 읽기 실패(-1) 는 마감 보류 쪽(fail-safe)으로 둬 broker 일시 장애에 데이터를 지킨다.
+        system_draining = queue_depth != 0 and (
+            db.query(CrawlTask.id)
+            .filter(
+                func.coalesce(CrawlTask.finished_at, CrawlTask.started_at)
+                >= now - timedelta(minutes=WORKER_LIVENESS_MIN),
+                # cleanup 이 방금/직전에 마킹한 좀비 task(finished_at=now)를 'worker 활동'으로
+                # 오인하지 않도록 제외 — 안 그러면 진짜 worker 사망 사이클에 system_draining
+                # 위양성이 되어 좀비 run 마감이 최대 WORKER_LIVENESS_MIN 만큼 지연된다.
+                CrawlTask.error_type.is_distinct_from("ZombieTimeout"),
+            )
+            .first()
+            is not None
+        )
+
+        killed = 0
+        guarded = 0
         for r in zombie_runs:
             # 좀비로 마감하되 그 시점까지의 task 결과를 카운트에 반영 (0/0/0 오염 방지)
             counts = dict(
@@ -1335,17 +1388,29 @@ def cleanup_zombie_runs() -> Dict[str, Any]:
                 .group_by(CrawlTask.status)
                 .all()
             )
-            r.success_count = counts.get(TaskStatus.SUCCESS, 0)
-            r.failed_count = counts.get(TaskStatus.FAILED, 0)
-            r.skipped_count = counts.get(TaskStatus.SKIPPED, 0)
+            success = counts.get(TaskStatus.SUCCESS, 0)
+            failed = counts.get(TaskStatus.FAILED, 0)
+            skipped = counts.get(TaskStatus.SKIPPED, 0)
+            finished = success + failed + skipped
+            # 큐가 비워지는 중이고 아직 처리 못한 promised child 가 남았으면 child 가 broker 에
+            # 대기 중 — 죽이지 말고 기다린다(데이터 손실 방지). worker 가 진짜 죽었으면
+            # system_draining=False 라 이 가드가 안 걸려 정상적으로 좀비 마감된다.
+            if system_draining and (r.total_tasks or 0) > finished:
+                guarded += 1
+                continue
+            r.success_count = success
+            r.failed_count = failed
+            r.skipped_count = skipped
             r.status = RunStatus.FAILED
             r.finished_at = now
             r.error_summary = f'{{"reason": "zombie_idle", "idle_min": {ZOMBIE_RUN_IDLE_MIN}}}'
+            killed += 1
 
         db.commit()
         result = {
             "tasks_cleaned": len(zombie_tasks) + len(zombie_pending),
-            "runs_cleaned": len(zombie_runs),
+            "runs_cleaned": killed,
+            "runs_guarded": guarded,
             "runs_finalized": swept,
         }
         if any(result.values()):
