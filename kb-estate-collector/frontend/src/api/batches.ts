@@ -1,9 +1,13 @@
 import apiClient from "./client"
 import type { Batch, SigunguBatch, DongBatch } from "@/types/batch"
+import type { WeeklySchedule } from "@/types/schedule"
 
 export const batchesApi = {
   list: () =>
     apiClient.get<Batch[]>("/api/batches").then((r) => r.data),
+
+  getSchedule: () =>
+    apiClient.get<WeeklySchedule>("/api/batches/schedule").then((r) => r.data),
 
   listSigungu: (sidoCode: string) =>
     apiClient.get<SigunguBatch[]>("/api/batches/sigungu", { params: { sido_code: sidoCode } })

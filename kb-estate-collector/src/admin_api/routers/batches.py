@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from src.core.database import get_db
 from src.core.time import now_kst
 from src.models import Complex, CrawlJob, CrawlRun, JobStatus, JobType, RunStatus
+from src.services.batch_schedule import build_schedule
 
 _logger = logging.getLogger(__name__)
 
@@ -256,6 +257,12 @@ def list_batches(db: Session = Depends(get_db)):
         )
 
     return result
+
+
+@router.get("/schedule")
+def get_weekly_schedule(db: Session = Depends(get_db)):
+    """주간 배치 스케줄 디코딩 (요일·실측소요·겹침·청크 커버리지). region_codes 청크 포함."""
+    return build_schedule(db)
 
 
 # 시군구/동 단위 run/schedule (일반화) — sido 단위보다 먼저 등록해야 path conflict 회피

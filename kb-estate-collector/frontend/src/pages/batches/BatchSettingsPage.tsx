@@ -2,6 +2,7 @@ import { Fragment, useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
 import { Play, Settings, Loader2, CalendarClock, ChevronRight, ChevronDown } from "lucide-react"
 import { SigunguSubRows } from "./BatchSubRows"
+import WeeklySchedulePanel from "./WeeklySchedulePanel"
 import { batchesApi } from "@/api/batches"
 void batchesApi  // scoped schedule 다이얼로그는 후속 작업, 호출 시 사용
 import { Checkbox } from "@/components/ui/checkbox"
@@ -209,6 +210,8 @@ export default function BatchSettingsPage() {
           </Button>
         }
       />
+
+      <WeeklySchedulePanel />
 
       <Card>
         <CardContent className="pt-6">
