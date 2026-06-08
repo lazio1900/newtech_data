@@ -2,7 +2,6 @@ import { Fragment, useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
 import { Play, Settings, Loader2, CalendarClock, ChevronRight, ChevronDown } from "lucide-react"
 import { SigunguSubRows } from "./BatchSubRows"
-import WeeklySchedulePanel from "./WeeklySchedulePanel"
 import { batchesApi } from "@/api/batches"
 void batchesApi  // scoped schedule 다이얼로그는 후속 작업, 호출 시 사용
 import { Checkbox } from "@/components/ui/checkbox"
@@ -211,8 +210,6 @@ export default function BatchSettingsPage() {
         }
       />
 
-      <WeeklySchedulePanel />
-
       <Card>
         <CardContent className="pt-6">
           {isLoading ? (
@@ -307,21 +304,34 @@ export default function BatchSettingsPage() {
 
                         {/* 스케줄 */}
                         <TableCell>
-                          <button
-                            onClick={() => setScheduleTarget(batch)}
-                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-accent"
-                          >
-                            <Settings className="h-3 w-3 text-muted-foreground" />
-                            <span
-                              className={
-                                batch.cron_schedule
-                                  ? "text-sm"
-                                  : "text-sm text-muted-foreground"
+                          {batch.chunk_count > 0 ? (
+                            <button
+                              onClick={() =>
+                                setExpandedSido(isExpanded ? null : batch.sido_code)
                               }
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-primary"
+                              title="시군구 청크로 분할 운영 — 펼쳐서 일정 확인"
                             >
-                              {cronToLabel(batch.cron_schedule)}
-                            </span>
-                          </button>
+                              <CalendarClock className="h-3 w-3" />
+                              청크 {batch.chunk_count}개 분할
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setScheduleTarget(batch)}
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-accent"
+                            >
+                              <Settings className="h-3 w-3 text-muted-foreground" />
+                              <span
+                                className={
+                                  batch.cron_schedule
+                                    ? "text-sm"
+                                    : "text-sm text-muted-foreground"
+                                }
+                              >
+                                {cronToLabel(batch.cron_schedule)}
+                              </span>
+                            </button>
+                          )}
                         </TableCell>
 
                         {/* 최근 실행 */}

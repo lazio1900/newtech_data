@@ -17,6 +17,7 @@ export interface Batch {
   job_status: string | null
   cron_schedule: string | null
   last_runs: BatchRun[]
+  chunk_count: number
 }
 
 export interface SigunguBatch {

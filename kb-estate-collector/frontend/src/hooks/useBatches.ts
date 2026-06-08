@@ -1,14 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { batchesApi } from "@/api/batches"
 
-export function useWeeklySchedule() {
-  return useQuery({
-    queryKey: ["batches", "schedule"],
-    queryFn: () => batchesApi.getSchedule(),
-    refetchInterval: 30_000,
-  })
-}
-
 export function useBatches() {
   return useQuery({
     queryKey: ["batches"],

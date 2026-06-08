@@ -169,6 +169,7 @@ class BatchSchema(BaseModel):
     job_status: Optional[str]
     cron_schedule: Optional[str]
     last_runs: List[BatchRunSchema]
+    chunk_count: int = 0  # region_codes 청크로 분할 운영 중인 active 잡 수 (서울·경기)
 
 
 class SigunguBatchSchema(BaseModel):
@@ -209,13 +210,18 @@ def list_batches(db: Session = Depends(get_db)):
     # 배치용 CrawlJob 전체 조회
     jobs = db.query(CrawlJob).filter(CrawlJob.job_type == JobType.REGION_ALL).all()
     job_map: Dict[str, CrawlJob] = {}
+    chunk_count_by_sido: Dict[str, int] = {}
     for j in jobs:
         try:
             cfg = json.loads(j.target_config) if j.target_config else {}
-            if "sido_code" in cfg:
-                job_map[cfg["sido_code"]] = j
         except (json.JSONDecodeError, TypeError):
-            pass
+            continue
+        if "sido_code" in cfg:
+            job_map[cfg["sido_code"]] = j
+        codes = cfg.get("region_codes")
+        if codes and j.status == JobStatus.ACTIVE:
+            sido = codes[0][:2]
+            chunk_count_by_sido[sido] = chunk_count_by_sido.get(sido, 0) + 1
 
     result: List[BatchSchema] = []
     for sido_code, sido_name in SIDO_MAP.items():
@@ -253,6 +259,7 @@ def list_batches(db: Session = Depends(get_db)):
                 job_status=job.status.value if job else None,
                 cron_schedule=job.cron_schedule if job else None,
                 last_runs=last_runs,
+                chunk_count=chunk_count_by_sido.get(sido_code, 0),
             )
         )
 
@@ -510,17 +517,26 @@ def list_sigungu_batches(sido_code: str, db: Session = Depends(get_db)):
         if len(parts) >= 2:
             name_map[rc] = parts[1]
 
-    # 잡 일괄 조회
+    # 잡 일괄 조회 — 단일 region_code 잡과 region_codes 청크 잡 모두 시군구에 매핑.
+    # 같은 시군구를 가리키는 잡이 여럿이면 ACTIVE(청크) 를 우선 (PAUSED monolith·legacy 보다).
     region_codes = [r.region_code for r in rows]
     jobs = db.query(CrawlJob).filter(CrawlJob.job_type == JobType.REGION_ALL).all()
-    job_by_region: Dict[str, CrawlJob] = {}
+    candidates: Dict[str, List[CrawlJob]] = {}
     for j in jobs:
         try:
             cfg = json.loads(j.target_config) if j.target_config else {}
-            if cfg.get("region_code") in region_codes:
-                job_by_region[cfg["region_code"]] = j
         except (json.JSONDecodeError, TypeError):
-            pass
+            continue
+        targets = ([cfg["region_code"]] if cfg.get("region_code") else []) + (
+            cfg.get("region_codes") or []
+        )
+        for rc in targets:
+            if rc in region_codes:
+                candidates.setdefault(rc, []).append(j)
+    job_by_region: Dict[str, CrawlJob] = {}
+    for rc, js in candidates.items():
+        active_js = [j for j in js if j.status == JobStatus.ACTIVE]
+        job_by_region[rc] = (active_js or js)[0]
 
     result: List[SigunguBatchSchema] = []
     for r in rows:
