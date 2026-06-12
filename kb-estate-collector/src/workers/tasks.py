@@ -1136,6 +1136,11 @@ def run_region_collection(
     }
 
 
+# RedBeat 가 cron 경계에서 같은 schedule 을 ~2-3초 간격으로 두 번 발화하는 조기발화
+# 버그가 있어, 같은 job 에 방금 생성된 활성 run 이 있으면 중복 트리거로 보고 건너뛴다.
+SCHEDULED_JOB_DEDUP_SEC = 300
+
+
 @celery_app.task(base=DatabaseTask, bind=True, acks_late=False, reject_on_worker_lost=False)
 def run_scheduled_job(self, job_id: int) -> Dict[str, Any]:
     """celery beat 가 cron 시점에 호출 — CrawlJob 의 target 에 따라 단지들을 모아 수집 trigger.
@@ -1152,6 +1157,24 @@ def run_scheduled_job(self, job_id: int) -> Dict[str, Any]:
     if not job or job.status != JobStatus.ACTIVE:
         logger.info(f"[scheduled_job] {job_id}: skipped (not active)")
         return {"status": "skipped"}
+
+    from datetime import timedelta
+
+    recent_dup = (
+        db.query(CrawlRun.id)
+        .filter(
+            CrawlRun.job_id == job.id,
+            CrawlRun.status.in_([RunStatus.RUNNING, RunStatus.PENDING]),
+            CrawlRun.started_at >= now_kst() - timedelta(seconds=SCHEDULED_JOB_DEDUP_SEC),
+        )
+        .first()
+    )
+    if recent_dup:
+        logger.warning(
+            f"[scheduled_job] {job_id}: duplicate trigger suppressed "
+            f"(active run {recent_dup[0]} started <{SCHEDULED_JOB_DEDUP_SEC}s ago)"
+        )
+        return {"status": "duplicate_suppressed", "existing_run_id": recent_dup[0]}
 
     try:
         cfg = json.loads(job.target_config) if job.target_config else {}

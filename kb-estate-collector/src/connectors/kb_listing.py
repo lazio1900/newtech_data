@@ -88,7 +88,7 @@ class KBListingConnector(KBBaseConnector):
         self, client: "httpx.Client", method: str, url: str, *, max_retries: int = 5, **kwargs
     ) -> "httpx.Response":
         """transient 네트워크 오류(서버 disconnect, timeout 등)는 지수백오프로 재시도.
-        KB propList/main 이 자주 끊겨 backoff 를 길게 (총 ~30초까지)."""
+        propList/main 처럼 결정적으로 차단되는 호출은 호출부에서 max_retries 를 낮춰 빠르게 포기."""
         import time as _time
 
         last_exc = None
@@ -170,11 +170,15 @@ class KBListingConnector(KBBaseConnector):
                 }
 
                 try:
+                    # KB 가 propList/main POST 에 안티봇(브라우저 외 클라이언트는 connection
+                    # reset)을 걸어 HTTP 직호출은 결정적으로 실패한다. 길게 재시도해봐야
+                    # 매물당 ~15초만 낭비하고 결국 브라우저로 폴백하므로 빠르게 포기한다.
                     prop_resp = self._request_with_retry(
                         client,
                         "POST",
                         COMPLEX_PROP_LIST.url,
                         json=post_body,
+                        max_retries=2,
                     )
                 except NetworkError as e:
                     logger.warning(f"{self.name}: propList page {page_no} retry exhausted: {e}")
